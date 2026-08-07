@@ -1,0 +1,8 @@
+# 生成的预览截图
+_shots/
+
+# 系统 / 临时文件
+Thumbs.db
+.DS_Store
+*.log
+node_modules/

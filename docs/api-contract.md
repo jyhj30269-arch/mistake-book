@@ -1,0 +1,88 @@
+# 考研错题本 · 前端 API 接口契约
+
+> 版本：v1 ｜ 状态：Phase A（local 模式，本机测试）
+>
+> 本文件与 `../api.js` 一一对应。后端接入时按此契约实现同名方法即可，前端业务代码无需改动。
+
+## 一、切换方式
+
+后端就绪后，在 `api.js` 顶部修改两处：
+
+```js
+API.mode = "remote";                    // "local" → "remote"
+API.base = "https://你的后端域名/api";   // 或本地联调 http://localhost:8000/api
+```
+
+## 二、通用约定
+
+- 所有方法返回 Promise；远端实现用 `fetch`，错误统一返回 `{ code, message, detail }`。
+- 错误码分段：`400xx` 参数错误、`401xx` 认证失败、`404xx` 不存在、`409xx` 冲突、`500xx` 服务端、`502xx` 第三方（MinerU）、`503xx` 限流/额度。
+- 涉及 MinerU Token 的逻辑只允许在后端，前端永远不接触密钥。
+- 单用户系统，认证暂为占位（本地阶段跳过）；后端可自行启用登录后，前端在请求头携带 Authorization。
+
+## 三、方法清单
+
+| 方法 | 入参 | 返回 | 说明 |
+| --- | --- | --- | --- |
+| `loadAll()` | 无 | 整库对象 `{ questions, reviewLogs, tree, study, remindOn }` | 本地：读 localStorage；远端：拉取全量数据或按需加载 |
+| `saveAll(data)` | 整库对象 | 无 | 本地：写 localStorage；远端：由各写接口替代，可不实现 |
+| `ocrRecognize(image, opts)` | `image`（本地：`{dataUrl,name}`；远端：File）、`opts.isSolution` | `{ taskId, titleTex, solutionTex, lowConf, source }`（远端先返回 `{ taskId }`） | 提交单张图片 OCR；Phase C 后端内部转发 MinerU |
+| `ocrStatus(taskId)` | taskId | `{ status: "pending"\|"done"\|"failed", result? }` | 轮询 OCR 任务（Phase C 使用） |
+| `checkDuplicate(payload)` | `{ titleTex, subject, type, excludeId, pool? }` | 疑似重复题目数组 | 同科目同类型 + 7 天时间窗 + 中文 bigram Jaccard > 0.7；远端由后端查库 |
+| `listQuestions()` | 无 | 题目数组 | 题库列表 |
+| `saveQuestion(q)` | 题目对象 | `{ ok, id }` | 新增题目 |
+| `deleteQuestion(id)` | id | `{ ok }` | 删除题目（复习记录置空或级联，按 §4.3 规范） |
+| `saveReviewLog(log)` | 复习记录对象 | `{ ok }` | 追加一条自评记录（实时计算掌握度） |
+| `saveStudy(seconds)` | 秒数 | `{ ok }` | 学习时长落库 |
+| `resetAll()` | 无 | 无 | 清空本机数据（仅本地测试用） |
+
+## 四、核心数据对象
+
+### 题目 `question`
+
+```json
+{
+  "id": 16,
+  "type": "problem",
+  "subject": "subj-math",
+  "subSubject": "ss-gaoshu",
+  "chapter": "ch-c1",
+  "kps": ["极限计算"],
+  "tags": ["method"],
+  "titleTex": "\\lim_{x \\to 0} \\frac{1 - \\cos x}{x \\sin x}",
+  "solutionTex": "1 - \\cos x \\sim \\frac{x^2}{2} ...",
+  "wrongAnswer": "",
+  "note": "",
+  "marks": {},
+  "createdAt": 1754000000000,
+  "urgent": false
+}
+```
+
+### 复习记录 `reviewLog`
+
+```json
+{ "id": 1, "qid": 16, "at": 1754000000000, "result": "ok" }
+```
+
+`result` 枚举：`ok`（做对）/ `fail`（做错）/ `half`（思路对细节错，不升降级）/ `stuck`（卡住，不升降级）。
+
+### OCR 结果
+
+```json
+{
+  "taskId": "task_xxx",
+  "titleTex": "OCR 后的题面 LaTeX / Markdown",
+  "solutionTex": "OCR 后的解题过程（isSolution 时返回）",
+  "lowConf": [{ "from": 18, "to": 22 }],
+  "source": "mineru | agent | mock"
+}
+```
+
+## 五、后端接入检查单
+
+- [ ] `ocrRecognize` / `ocrStatus` 对接 MinerU（先 curl 实测连通性；Supabase 国外域名拉取超时则用方案 B：函数下载 → 申请 MinerU 上传链接 → PUT → 轮询）
+- [ ] `checkDuplicate` 用后端数据实现 7 天窗口 + bigram Jaccard
+- [ ] `saveQuestion` / `deleteQuestion` / `saveReviewLog` 落库，掌握度实时计算（六级状态流转严格按设计文档 §三）
+- [ ] 错误格式统一 `{ code, message, detail }`
+- [ ] 前端切换 `mode = "remote"` 后全流程回归（录入 → 题库 → 复习 → 统计 → 导入导出）
