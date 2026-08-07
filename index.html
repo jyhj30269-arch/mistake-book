@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 考研错题本 v1.10.0 -->
+  <!-- 个人工作台 v1.11.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>考研错题本</title>
+  <title>个人工作台</title>
   <link rel="stylesheet" href="vendor/katex/katex.min.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -14,8 +14,8 @@
   <div id="view-login">
     <div class="login-wrap">
       <div class="login-brand">
-        <h1>考研错题本</h1>
-        <p>拍照录入 → OCR 识别 → 人工校对 → 分类归档 → 随机抽题复习 → 六级掌握度评估。</p>
+        <h1>个人工作台</h1>
+        <p>错题学习 + 个人管理：拍照录入 → OCR 识别 → 分类归档 → 随机抽题复习 → 待办 / 目标 / 复盘。</p>
         <div class="flow">
           <div><span class="dot"></span>单题 / 批量识别合为一个入口</div>
           <div><span class="dot"></span>数据存本地 SQLite（mistake-book.db）</div>
@@ -54,16 +54,25 @@
     <div class="app-shell">
       <nav class="side-nav">
         <div class="brand">
-          <div class="brand-logo">错</div>
+          <div class="brand-logo">我</div>
           <div>
-            <div class="brand-name">考研错题本</div>
-            <div class="brand-sub">个人工作台</div>
+            <div class="brand-name">个人工作台</div>
+            <div class="brand-sub">错题学习 · 个人管理</div>
           </div>
         </div>
 
         <div class="nav-group">工作台</div>
         <a class="nav-item" data-view="dashboard"><span class="icon">📊</span>仪表盘</a>
-        <a class="nav-item active" data-view="input"><span class="icon">📸</span>识别录入</a>
+
+        <div class="nav-group">个人</div>
+        <a class="nav-item" data-view="todos"><span class="icon">✅</span>今日待办</a>
+        <a class="nav-item" data-view="goals"><span class="icon">🎯</span>目标与规划</a>
+        <a class="nav-item" data-view="summary"><span class="icon">📈</span>周月总结</a>
+        <a class="nav-item" data-view="health"><span class="icon">💪</span>运动健康</a>
+        <a class="nav-item" data-view="daily"><span class="icon">📝</span>今日复盘</a>
+
+        <div class="nav-group">学习</div>
+        <a class="nav-item" data-view="input"><span class="icon">📸</span>识别录入</a>
         <a class="nav-item" data-view="questions"><span class="icon">🗂</span>题库</a>
 
         <div class="nav-group">系统</div>
@@ -112,6 +121,35 @@
               <div class="stat-label">累计学习时长（分钟）</div>
               <div class="stat-value" id="stats-time">0</div>
               <div class="stat-delta" id="stats-avg">平均复习 0 次 / 题</div>
+            </div>
+          </div>
+
+          <div class="card mt-16">
+            <div class="card-head">
+              <div class="card-title">📋 今日概览</div>
+              <span class="card-more" onclick="go('todos')">去安排 →</span>
+            </div>
+            <div class="grid grid-4" id="overview-grid">
+              <div class="stat-card" style="border:none;box-shadow:none;padding:8px 0;">
+                <div class="stat-label">待办完成</div>
+                <div class="stat-value" style="font-size:20px;"><span id="ov-todo">0</span></div>
+                <div class="stat-delta" id="ov-todo-sub">共 0 条</div>
+              </div>
+              <div class="stat-card" style="border:none;box-shadow:none;padding:8px 0;">
+                <div class="stat-label">本周运动</div>
+                <div class="stat-value" style="font-size:20px;"><span id="ov-sport">0</span></div>
+                <div class="stat-delta" id="ov-sport-sub">0 / 0 次</div>
+              </div>
+              <div class="stat-card" style="border:none;box-shadow:none;padding:8px 0;">
+                <div class="stat-label">今日复盘</div>
+                <div class="stat-value" style="font-size:20px;"><span id="ov-review">未写</span></div>
+                <div class="stat-delta" id="ov-review-sub">晚上留 10 分钟</div>
+              </div>
+              <div class="stat-card" style="border:none;box-shadow:none;padding:8px 0;">
+                <div class="stat-label">今日学习</div>
+                <div class="stat-value" style="font-size:20px;"><span id="ov-study">0</span></div>
+                <div class="stat-delta" id="ov-study-sub">分钟（打开应用计时）</div>
+              </div>
             </div>
           </div>
 
@@ -502,7 +540,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.10.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.11.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
@@ -563,12 +601,166 @@
             <div id="settings-tree"></div>
           </div>
         </section>
+
+        <!-- ========== 今日待办 ========== -->
+        <section id="view-todos" style="display:none;">
+          <div class="topbar">
+            <div>
+              <div class="page-title">✅ 今日待办</div>
+              <div class="page-sub" id="todos-sub"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="flex" style="gap:8px;flex-wrap:wrap;">
+              <input class="input" id="todo-input" placeholder="添加一条待办…" style="flex:1;min-width:220px;" onkeydown="if(event.key==='Enter')addTodo()" />
+              <select class="select" id="todo-due" style="width:130px;flex-shrink:0;">
+                <option value="today">今天</option>
+                <option value="">无期限</option>
+                <option value="tomorrow">明天</option>
+              </select>
+              <button class="btn btn-primary" onclick="addTodo()">添加</button>
+            </div>
+            <div class="divider"></div>
+            <div id="todo-list"></div>
+          </div>
+        </section>
+
+        <!-- ========== 目标与规划 ========== -->
+        <section id="view-goals" style="display:none;">
+          <div class="topbar">
+            <div>
+              <div class="page-title">🎯 目标与规划</div>
+              <div class="page-sub">大目标 + 里程碑 + 进度条，像 Notion 一样追踪进展</div>
+            </div>
+          </div>
+          <div class="card mb-16">
+            <div class="flex" style="gap:8px;flex-wrap:wrap;">
+              <input class="input" id="goal-input" placeholder="新目标，如：考研初试 / 毕业论文初稿" style="flex:1;min-width:240px;" onkeydown="if(event.key==='Enter')addGoal()" />
+              <select class="select" id="goal-cat" style="width:120px;flex-shrink:0;">
+                <option>学习</option>
+                <option>科研</option>
+                <option>生活</option>
+                <option>健康</option>
+              </select>
+              <input class="input" id="goal-date" type="date" style="width:150px;flex-shrink:0;" />
+              <button class="btn btn-primary" onclick="addGoal()">添加目标</button>
+            </div>
+          </div>
+          <div id="goal-list" class="grid grid-2"></div>
+        </section>
+
+        <!-- ========== 周月总结 ========== -->
+        <section id="view-summary" style="display:none;">
+          <div class="topbar">
+            <div>
+              <div class="page-title">📈 周月总结</div>
+              <div class="page-sub" id="summary-sub"></div>
+            </div>
+            <div class="flex" id="summary-range">
+              <span class="chip on" data-v="week" onclick="setSummaryRange('week')">本周</span>
+              <span class="chip" data-v="month" onclick="setSummaryRange('month')">本月</span>
+            </div>
+          </div>
+          <div class="grid grid-4" id="summary-cards"></div>
+          <div class="grid grid-2 mt-16">
+            <div class="card">
+              <div class="card-head"><div class="card-title">💪 运动健康</div></div>
+              <div id="summary-health"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><div class="card-title">📝 复盘记录</div></div>
+              <div id="summary-review"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========== 运动健康 ========== -->
+        <section id="view-health" style="display:none;">
+          <div class="topbar">
+            <div>
+              <div class="page-title">💪 运动健康</div>
+              <div class="page-sub" id="health-sub"></div>
+            </div>
+          </div>
+          <div class="grid grid-2">
+            <div class="card">
+              <div class="card-head"><div class="card-title">本周目标</div><span class="tag">可调整</span></div>
+              <div class="grid grid-2">
+                <div class="field">
+                  <label>周目标次数</label>
+                  <input class="input" id="health-times" type="number" min="0" value="2" />
+                </div>
+                <div class="field">
+                  <label>周目标分钟</label>
+                  <input class="input" id="health-minutes" type="number" min="0" value="90" />
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="saveHealthGoal()">保存目标</button>
+            </div>
+            <div class="card">
+              <div class="card-head"><div class="card-title">今日打卡</div></div>
+              <div class="flex" style="flex-wrap:wrap;">
+                <button class="btn" onclick="healthLog(1,0)">🏃 +1 次运动</button>
+                <button class="btn" onclick="healthLog(0,15)">⏱ +15 分钟</button>
+                <button class="btn" onclick="healthLog(0,30)">⏱ +30 分钟</button>
+              </div>
+              <div class="divider"></div>
+              <div class="small muted">本周进度：<b id="health-progress"></b></div>
+              <div class="progress mt-8"><i id="health-progress-bar" style="width:0%"></i></div>
+            </div>
+          </div>
+          <div class="card mt-16">
+            <div class="card-head"><div class="card-title">最近打卡记录</div></div>
+            <div id="health-list"></div>
+          </div>
+        </section>
+
+        <!-- ========== 今日复盘 ========== -->
+        <section id="view-daily" style="display:none;">
+          <div class="topbar">
+            <div>
+              <div class="page-title">📝 今日复盘</div>
+              <div class="page-sub" id="daily-sub"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div class="card-title">晚上留 10 分钟，过一遍今天</div><span class="tag">固定模板</span></div>
+            <div class="field">
+              <label>今天完成了什么？</label>
+              <textarea class="textarea" id="rv-done" rows="3" placeholder="复习了哪些章节、录入了哪些错题、论文推进了什么…"></textarea>
+            </div>
+            <div class="field">
+              <label>卡在哪里？</label>
+              <textarea class="textarea" id="rv-stuck" rows="2" placeholder="哪块没搞懂、什么被打断…"></textarea>
+            </div>
+            <div class="field">
+              <label>明天计划</label>
+              <textarea class="textarea" id="rv-plan" rows="2" placeholder="明天最重要的一件事…"></textarea>
+            </div>
+            <div class="field">
+              <label>今天心情</label>
+              <div class="radio-group" id="rv-mood">
+                <span class="chip" data-v="😀" onclick="pickMood(this)">😀 很好</span>
+                <span class="chip" data-v="🙂" onclick="pickMood(this)">🙂 不错</span>
+                <span class="chip" data-v="😐" onclick="pickMood(this)">😐 一般</span>
+                <span class="chip" data-v="😣" onclick="pickMood(this)">😣 疲惫</span>
+                <span class="chip" data-v="😫" onclick="pickMood(this)">😫 焦虑</span>
+              </div>
+            </div>
+            <button class="btn btn-primary" onclick="saveDailyReview()">保存今日复盘</button>
+          </div>
+          <div class="card mt-16">
+            <div class="card-head"><div class="card-title">历史复盘</div><span class="tag">最近 7 天</span></div>
+            <div id="rv-history"></div>
+          </div>
+        </section>
       </main>
     </div>
 
     <!-- 移动端底部 Tab -->
     <div class="mobile-tabbar" id="mobile-tabbar">
       <a data-view="dashboard" class="active"><span class="icon">📊</span>首页</a>
+      <a data-view="todos"><span class="icon">✅</span>待办</a>
       <a data-view="input"><span class="icon">📸</span>录入</a>
       <a data-view="questions"><span class="icon">🗂</span>题库</a>
       <a data-view="settings"><span class="icon">⚙️</span>设置</a>

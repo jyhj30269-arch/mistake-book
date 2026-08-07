@@ -80,7 +80,7 @@ try {
     tabItems: Array.from(document.querySelectorAll(".mobile-tabbar a")).map(a => a.textContent.trim())
   }))()`);
   check("侧边栏已删除 随机复习/数据统计", !nav.sideItems.some(t => t.includes("随机复习") || t.includes("数据统计")));
-  check("移动 Tab 只剩 4 项", nav.tabItems.length === 4 && nav.tabItems.join().includes("设置"));
+  check("移动 Tab 含首页/待办/录入/题库/设置", nav.tabItems.length === 5 && nav.tabItems.join().includes("设置") && nav.tabItems.join().includes("待办"));
 
   // 2) 复习续传按钮
   await evalJS(`localStorage.setItem("review-resume", JSON.stringify({ queue: [1,2,3], idx: 2, done: [0,1], skipped: [], results: [] })); renderResumeButton(); true`);

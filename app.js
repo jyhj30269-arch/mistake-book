@@ -1,7 +1,9 @@
 /* ============================================================
-   考研错题本 · 业务逻辑 v1.10.0
-   版本：v1.10.0（全站 Notion 风格：浅色暖白 + 细边框 + 小圆角 + 蓝色强调）
+   个人工作台 · 业务逻辑 v1.11.0
+   版本：v1.11.0（产品更名个人工作台 + 新增待办/目标/周月总结/运动健康/今日复盘）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
+   今日概览（待办/运动/复盘/学习）/ 今日待办 / 目标与规划（进度+里程碑+倒数日）/
+   周月总结（学习+个人聚合）/ 运动健康（周目标+打卡）/ 今日复盘（模板+历史）/
    备注框始终可编辑 / 保存后留在录入页（成功失败均有提示）/
    题库与详情公式 KaTeX 渲染 / 选择题选项自动换行 /
    Cookie 登录（SQLite users/sessions，scrypt 加盐哈希，注册/登录/登出）/
@@ -100,7 +102,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.10.0";
+const APP_VERSION = "1.11.0";
 
 const TREE = [
   {
@@ -143,6 +145,19 @@ let questions = [];
 let reviewLogs = [];
 let sessionId = 0;
 let reviewSeq = 0;
+
+/* ---------------- 个人工作台：待办 / 目标 / 健康 / 复盘 ---------------- */
+let personal = {
+  todos: [],       // { id, title, done, due, priority, createdAt }
+  goals: [],       // { id, title, category, progress, milestone, targetDate, createdAt }
+  health: [],      // { day, sportTimes, sportMinutes, sleepHours, note }
+  reviews: [],     // { day, done, stuck, plan, mood, updatedAt }
+  healthGoal: { times: 2, minutes: 90 }
+};
+let personalIdSeq = 1;
+let summaryRange = "week";
+let dailyMood = "";
+function nextTodoId() { return personalIdSeq++; }
 
 function mkQ(o) {
   return {
@@ -286,6 +301,11 @@ function go(view) {
   if (view === "questions") renderQuestions();
   if (view === "settings") renderSettings();
   if (view === "input") { fillInputSelects(); renderInput(); }
+  if (view === "todos") renderTodos();
+  if (view === "goals") renderGoals();
+  if (view === "summary") renderSummary();
+  if (view === "health") renderHealth();
+  if (view === "daily") renderDaily();
   window.scrollTo(0, 0);
 }
 
@@ -376,6 +396,7 @@ function renderDashboard() {
   // 仪表盘内联：随机复习 + 数据统计
   renderReviewConfig();
   renderStats();
+  renderTodayOverview();
 }
 
 function weakKps() {
@@ -1708,7 +1729,7 @@ function toggleRemind() {
 function demoNotify() {
   if ("Notification" in window) {
     if (Notification.permission !== "granted") Notification.requestPermission();
-    if (Notification.permission === "granted") new Notification("考研错题本", { body: "今天该复习错题了，当前共有 X 道未掌握题目" });
+    if (Notification.permission === "granted") new Notification("个人工作台", { body: "今天该复习错题了，当前共有 X 道未掌握题目" });
   }
   toast("演示通知（浏览器可能要求授权）");
 }
@@ -2157,6 +2178,353 @@ function doOverwrite() {
   go("dashboard");
 }
 
+/* ================= 个人工作台：今日概览 / 待办 / 目标 / 总结 / 健康 / 复盘 ================= */
+
+function dayKey(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function weekStartKey() {
+  const d = new Date();
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // 周一为一周开始
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function rangeStartTs(mode) {
+  if (mode === "month") return new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+  const d = new Date();
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function renderTodayOverview() {
+  const today = dayKey();
+  const undone = personal.todos.filter(t => !t.done).length;
+  const total = personal.todos.length;
+  const wkStart = weekStartKey();
+  const wk = personal.health.filter(h => h.day >= wkStart);
+  const sportTimes = wk.reduce((s, h) => s + h.sportTimes, 0);
+  const sportMin = wk.reduce((s, h) => s + h.sportMinutes, 0);
+  const rv = personal.reviews.find(r => r.day === today);
+  const set = (id, v) => { const el = $("#" + id); if (el) el.textContent = v; };
+  set("ov-todo", `${total - undone}/${total}`);
+  set("ov-todo-sub", undone ? `还有 ${undone} 条未完成` : "全部搞定 🎉");
+  set("ov-sport", `${sportTimes} 次`);
+  set("ov-sport-sub", `${sportMin} / ${personal.healthGoal.minutes} 分钟`);
+  set("ov-review", rv ? "已写" : "未写");
+  set("ov-study", Math.floor((study.perDay[today] || 0) / 60));
+}
+
+/* ---------- 今日待办 ---------- */
+function todoDueTag(t) {
+  if (t.due === dayKey()) return `<span class="tag tag-primary">今天</span>`;
+  if (t.due === dayKey(1)) return `<span class="tag">明天</span>`;
+  return t.due ? `<span class="tag">${esc(t.due)}</span>` : "";
+}
+
+function renderTodos() {
+  const sub = $("#todos-sub");
+  const undone = personal.todos.filter(t => !t.done);
+  const done = personal.todos.filter(t => t.done);
+  if (sub) sub.textContent = `${undone.length} 条未完成 · ${done.length} 条已完成`;
+  const box = $("#todo-list");
+  if (!personal.todos.length) {
+    box.innerHTML = `<div class="small muted">还没有待办，先加一条吧，比如「今天复习极限计算」。</div>`;
+    return;
+  }
+  box.innerHTML =
+    undone.map(t => `
+      <div class="todo-row">
+        <span class="todo-check" onclick="toggleTodo(${t.id})">○</span>
+        <span class="todo-title">${esc(t.title)}</span>
+        ${todoDueTag(t)}
+        <span class="flex" style="margin-left:auto;">
+          <button class="btn btn-sm" onclick="toggleTodo(${t.id})">完成</button>
+          <button class="btn btn-sm btn-danger" onclick="delTodo(${t.id})">删除</button>
+        </span>
+      </div>`).join("") +
+    (done.length ? `<div class="small muted mt-16 mb-8">已完成</div>` + done.map(t => `
+      <div class="todo-row done">
+        <span class="todo-check" onclick="toggleTodo(${t.id})">✓</span>
+        <span class="todo-title">${esc(t.title)}</span>
+        ${todoDueTag(t)}
+        <button class="btn btn-sm" onclick="delTodo(${t.id})" style="margin-left:auto;">删除</button>
+      </div>`).join("") : "");
+}
+
+function addTodo() {
+  const input = $("#todo-input");
+  const title = input.value.trim();
+  if (!title) { toast("请输入待办内容", "error"); return; }
+  const due = $("#todo-due").value;
+  personal.todos.unshift({
+    id: nextTodoId(), title, done: false,
+    due: due === "today" ? dayKey() : due === "tomorrow" ? dayKey(1) : "",
+    priority: 0, createdAt: Date.now()
+  });
+  input.value = "";
+  persistLocal();
+  renderTodos();
+  toast("已添加待办", "success");
+}
+
+function toggleTodo(id) {
+  const t = personal.todos.find(x => x.id === id);
+  if (!t) return;
+  t.done = !t.done;
+  persistLocal();
+  renderTodos();
+}
+
+function delTodo(id) {
+  personal.todos = personal.todos.filter(x => x.id !== id);
+  persistLocal();
+  renderTodos();
+  toast("已删除待办");
+}
+
+/* ---------- 目标与规划 ---------- */
+function goalCard(g) {
+  const left = g.targetDate ? Math.max(0, Math.ceil((new Date(g.targetDate) - Date.now()) / 86400000)) : null;
+  return `
+  <div class="card">
+    <div class="flex-between">
+      <div class="card-title">${esc(g.title)}</div>
+      <span class="tag">${esc(g.category)}</span>
+    </div>
+    <div class="flex mt-8" style="gap:8px;align-items:center;">
+      <span class="small muted">进度</span>
+      <div class="progress" style="flex:1;"><i style="width:${Math.max(0, Math.min(100, g.progress))}%"></i></div>
+      <b class="small">${g.progress}%</b>
+    </div>
+    ${g.milestone ? `<div class="small mt-8"><span class="muted">下一里程碑：</span>${esc(g.milestone)}</div>` : ""}
+    ${left != null ? `<div class="small mt-8"><span class="muted">目标日期：</span>${esc(g.targetDate)} · 还剩 <b>${left}</b> 天</div>` : ""}
+    <div class="flex mt-16" style="flex-wrap:wrap;">
+      <button class="btn btn-sm" onclick="goalProgress(${g.id}, -10)">−10%</button>
+      <button class="btn btn-sm" onclick="goalProgress(${g.id}, 10)">+10%</button>
+      <button class="btn btn-sm" onclick="editGoal(${g.id})">编辑</button>
+      <button class="btn btn-sm btn-danger" onclick="delGoal(${g.id})">删除</button>
+    </div>
+  </div>`;
+}
+
+function renderGoals() {
+  const box = $("#goal-list");
+  if (!personal.goals.length) {
+    box.innerHTML = `<div class="card"><div class="small muted">还没有目标，先立一个吧，比如「考研初试」「毕业论文初稿」。</div></div>`;
+    return;
+  }
+  box.innerHTML = personal.goals.map(goalCard).join("");
+}
+
+function addGoal() {
+  const title = $("#goal-input").value.trim();
+  if (!title) { toast("请输入目标名称", "error"); return; }
+  personal.goals.push({
+    id: nextTodoId(), title, category: $("#goal-cat").value, progress: 0,
+    milestone: "", targetDate: $("#goal-date").value || "", createdAt: Date.now()
+  });
+  $("#goal-input").value = "";
+  $("#goal-date").value = "";
+  persistLocal();
+  renderGoals();
+  toast("已添加目标", "success");
+}
+
+function goalProgress(id, delta) {
+  const g = personal.goals.find(x => x.id === id);
+  if (!g) return;
+  g.progress = Math.max(0, Math.min(100, g.progress + delta));
+  persistLocal();
+  renderGoals();
+}
+
+function editGoal(id) {
+  const g = personal.goals.find(x => x.id === id);
+  if (!g) return;
+  const cats = ["学习", "科研", "生活", "健康"];
+  openModal("编辑目标", `
+    <div class="field"><label>目标名称</label><input class="input" id="eg-title" value="${esc(g.title)}" /></div>
+    <div class="grid grid-2">
+      <div class="field"><label>分类</label><select class="select" id="eg-cat">${cats.map(c => `<option ${c === g.category ? "selected" : ""}>${c}</option>`).join("")}</select></div>
+      <div class="field"><label>进度 %</label><input class="input" id="eg-progress" type="number" min="0" max="100" value="${g.progress}" /></div>
+    </div>
+    <div class="field"><label>下一里程碑</label><input class="input" id="eg-milestone" value="${esc(g.milestone)}" placeholder="如：完成变量关系图与第一版假设" /></div>
+    <div class="field"><label>目标日期（可选，用于倒数日）</label><input class="input" id="eg-date" type="date" value="${g.targetDate}" /></div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="saveGoalEdit(${id})">保存</button>`);
+}
+
+function saveGoalEdit(id) {
+  const g = personal.goals.find(x => x.id === id);
+  if (!g) return;
+  g.title = $("#eg-title").value.trim() || g.title;
+  g.category = $("#eg-cat").value;
+  g.progress = Math.max(0, Math.min(100, Number($("#eg-progress").value) || 0));
+  g.milestone = $("#eg-milestone").value.trim();
+  g.targetDate = $("#eg-date").value || "";
+  closeModal();
+  persistLocal();
+  renderGoals();
+  toast("已保存目标", "success");
+}
+
+function delGoal(id) {
+  const g = personal.goals.find(x => x.id === id);
+  if (!g) return;
+  openModal("删除目标", `<div class="small muted">确定删除「${esc(g.title)}」？此操作不可恢复。</div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-danger" onclick="closeModal();doDelGoal(${id})">删除</button>`);
+}
+
+function doDelGoal(id) {
+  personal.goals = personal.goals.filter(x => x.id !== id);
+  persistLocal();
+  renderGoals();
+  toast("已删除目标");
+}
+
+/* ---------- 周月总结 ---------- */
+function setSummaryRange(r) {
+  summaryRange = r;
+  $$("#summary-range .chip").forEach(c => c.classList.toggle("on", c.dataset.v === r));
+  renderSummary();
+}
+
+function summaryData(mode) {
+  const start = rangeStartTs(mode);
+  const startKey = fmtDate(start);
+  const inR = ts => ts >= start;
+  const added = questions.filter(q => inR(q.createdAt)).length;
+  const reviewed = reviewLogs.filter(l => inR(l.at)).length;
+  const studySec = Object.entries(study.perDay)
+    .filter(([day]) => day >= startKey)
+    .reduce((s, [, v]) => s + v, 0);
+  const todos = personal.todos.filter(t => inR(t.createdAt));
+  const doneTodos = todos.filter(t => t.done).length;
+  const wkHealth = personal.health.filter(h => h.day >= startKey);
+  const sportTimes = wkHealth.reduce((s, h) => s + h.sportTimes, 0);
+  const sportMin = wkHealth.reduce((s, h) => s + h.sportMinutes, 0);
+  const rvCount = personal.reviews.filter(r => r.day >= startKey).length;
+  return { startKey, added, reviewed, studySec, todoTotal: todos.length, todoDone: doneTodos, sportTimes, sportMin, rvCount };
+}
+
+function renderSummary() {
+  const d = summaryData(summaryRange);
+  const sub = $("#summary-sub");
+  if (sub) sub.textContent = `${summaryRange === "week" ? "本周" : "本月"}（自 ${d.startKey} 起）学习与生活汇总`;
+  const cards = $("#summary-cards");
+  if (cards) cards.innerHTML = `
+    <div class="stat-card"><div class="stat-label">录入题数</div><div class="stat-value">${d.added}</div><div class="stat-delta">新增错题</div></div>
+    <div class="stat-card"><div class="stat-label">复习次数</div><div class="stat-value">${d.reviewed}</div><div class="stat-delta">${questions.length ? "人均 " + (d.reviewed / questions.length).toFixed(1) + " 次/题" : "暂无题库"}</div></div>
+    <div class="stat-card"><div class="stat-label">学习时长</div><div class="stat-value">${Math.floor(d.studySec / 60)}</div><div class="stat-delta">分钟</div></div>
+    <div class="stat-card"><div class="stat-label">待办完成</div><div class="stat-value">${d.todoDone}/${d.todoTotal}</div><div class="stat-delta">${d.todoTotal ? Math.round(d.todoDone / d.todoTotal * 100) + "%" : "暂无待办"}</div></div>`;
+  const sh = $("#summary-health");
+  if (sh) sh.innerHTML = `
+    <div class="small">运动 <b>${d.sportTimes}</b> 次 · <b>${d.sportMin}</b> 分钟</div>
+    <div class="small muted mt-8">${summaryRange === "week" ? `周目标 ${personal.healthGoal.times} 次 / ${personal.healthGoal.minutes} 分钟` : "月度累计"}</div>`;
+  const sr = $("#summary-review");
+  if (sr) sr.innerHTML = `
+    <div class="small">复盘 <b>${d.rvCount}</b> 天</div>
+    <div class="small muted mt-8">${personal.reviews.length ? "坚持复盘，进步可见" : "还没有复盘记录"}</div>`;
+}
+
+/* ---------- 运动健康 ---------- */
+function renderHealth() {
+  const today = dayKey();
+  const sub = $("#health-sub");
+  const h = personal.health.find(x => x.day === today);
+  const times = h ? h.sportTimes : 0;
+  const minutes = h ? h.sportMinutes : 0;
+  if (sub) sub.textContent = `${today} · 今日 ${times} 次 / ${minutes} 分钟`;
+  $("#health-times").value = personal.healthGoal.times;
+  $("#health-minutes").value = personal.healthGoal.minutes;
+  const wkStart = weekStartKey();
+  const wk = personal.health.filter(x => x.day >= wkStart);
+  const wt = wk.reduce((s, x) => s + x.sportTimes, 0);
+  const wm = wk.reduce((s, x) => s + x.sportMinutes, 0);
+  $("#health-progress").textContent = `${wt} / ${personal.healthGoal.times} 次 · ${wm} / ${personal.healthGoal.minutes} 分钟`;
+  $("#health-progress-bar").style.width = Math.min(100, Math.round(wt / Math.max(1, personal.healthGoal.times) * 100)) + "%";
+  const list = $("#health-list");
+  list.innerHTML = personal.health.slice().reverse().slice(0, 14).map(x => `
+    <div class="flex-between" style="padding:8px 0;border-bottom:1px solid var(--border);">
+      <span>${x.day}</span>
+      <span class="small muted">${x.sportTimes} 次 · ${x.sportMinutes} 分钟${x.sleepHours ? " · 睡眠 " + x.sleepHours + "h" : ""}${x.note ? " · " + esc(x.note) : ""}</span>
+    </div>`).join("") || `<div class="small muted">暂无打卡记录</div>`;
+}
+
+function saveHealthGoal() {
+  personal.healthGoal.times = Math.max(0, Number($("#health-times").value) || 0);
+  personal.healthGoal.minutes = Math.max(0, Number($("#health-minutes").value) || 0);
+  persistLocal();
+  renderHealth();
+  toast("已保存运动目标", "success");
+}
+
+function healthLog(times, minutes) {
+  const today = dayKey();
+  let h = personal.health.find(x => x.day === today);
+  if (!h) {
+    h = { day: today, sportTimes: 0, sportMinutes: 0, sleepHours: 0, note: "" };
+    personal.health.push(h);
+  }
+  h.sportTimes += times;
+  h.sportMinutes += minutes;
+  persistLocal();
+  renderHealth();
+  toast(times ? `已 +${times} 次运动` : `已 +${minutes} 分钟`, "success");
+}
+
+/* ---------- 今日复盘 ---------- */
+function renderDaily() {
+  const today = dayKey();
+  const sub = $("#daily-sub");
+  const rv = personal.reviews.find(x => x.day === today);
+  if (sub) sub.textContent = today + (rv ? " · 今天已复盘 ✓" : " · 还没写，留 10 分钟给自己");
+  $("#rv-done").value = rv ? rv.done : "";
+  $("#rv-stuck").value = rv ? rv.stuck : "";
+  $("#rv-plan").value = rv ? rv.plan : "";
+  dailyMood = rv ? rv.mood : "";
+  $$("#rv-mood .chip").forEach(c => c.classList.toggle("on", c.dataset.v === dailyMood));
+  const hist = $("#rv-history");
+  hist.innerHTML = personal.reviews.slice(0, 7).map(r => `
+    <div class="review-item">
+      <div class="flex-between"><b class="small">${r.day}</b><span class="small">${r.mood || ""}</span></div>
+      ${r.done ? `<div class="small mt-8"><span class="muted">完成：</span>${esc(r.done)}</div>` : ""}
+      ${r.stuck ? `<div class="small mt-4"><span class="muted">卡住：</span>${esc(r.stuck)}</div>` : ""}
+      ${r.plan ? `<div class="small mt-4"><span class="muted">计划：</span>${esc(r.plan)}</div>` : ""}
+    </div>`).join("") || `<div class="small muted">还没有复盘记录</div>`;
+}
+
+function pickMood(el) {
+  dailyMood = el.dataset.v;
+  $$("#rv-mood .chip").forEach(c => c.classList.remove("on"));
+  el.classList.add("on");
+}
+
+function saveDailyReview() {
+  const today = dayKey();
+  const done = $("#rv-done").value.trim();
+  const stuck = $("#rv-stuck").value.trim();
+  const plan = $("#rv-plan").value.trim();
+  let rv = personal.reviews.find(x => x.day === today);
+  if (!rv) {
+    rv = { day: today, done: "", stuck: "", plan: "", mood: "", updatedAt: 0 };
+    personal.reviews.unshift(rv);
+  }
+  rv.done = done;
+  rv.stuck = stuck;
+  rv.plan = plan;
+  rv.mood = dailyMood;
+  rv.updatedAt = Date.now();
+  persistLocal();
+  renderDaily();
+  toast("今日复盘已保存", "success");
+}
+
 /* ---------------- 学习时长 ---------------- */
 const study = { seconds: 0, timer: null, lastBlur: 0, blurPrompt: false, perDay: {} };
 function studyTick() {
@@ -2194,7 +2562,14 @@ function persistLocal() {
     reviewSeq,
     study: { seconds: study.seconds, blurPrompt: study.blurPrompt, perDay: study.perDay },
     remindOn,
-    reviewCfg: { ...reviewCfg }
+    reviewCfg: { ...reviewCfg },
+    personal: {
+      todos: personal.todos,
+      goals: personal.goals,
+      health: personal.health,
+      reviews: personal.reviews,
+      healthGoal: { ...personal.healthGoal }
+    }
   };
   API.saveAll(data).catch(e => {
     serverDown = true;
@@ -2227,6 +2602,14 @@ async function loadLocal() {
   }
   if (typeof d.remindOn === "boolean") remindOn = d.remindOn;
   if (d.reviewCfg) reviewCfg = { sub: "all", chapter: "", lv: "all", num: 3, ...d.reviewCfg };
+  if (d.personal) {
+    personal.todos = Array.isArray(d.personal.todos) ? d.personal.todos : [];
+    personal.goals = Array.isArray(d.personal.goals) ? d.personal.goals : [];
+    personal.health = Array.isArray(d.personal.health) ? d.personal.health : [];
+    personal.reviews = Array.isArray(d.personal.reviews) ? d.personal.reviews : [];
+    personal.healthGoal = { times: 2, minutes: 90, ...(d.personal.healthGoal || {}) };
+    personalIdSeq = Math.max(1, ...personal.todos.map(t => t.id || 0), ...personal.goals.map(g => g.id || 0)) + 1;
+  }
   return true;
 }
 
@@ -2315,6 +2698,20 @@ window.reviewExit = reviewExit;
 window.selectDefaultNum = selectDefaultNum;
 window.toggleRemind = toggleRemind;
 window.demoNotify = demoNotify;
+window.addTodo = addTodo;
+window.toggleTodo = toggleTodo;
+window.delTodo = delTodo;
+window.addGoal = addGoal;
+window.goalProgress = goalProgress;
+window.editGoal = editGoal;
+window.saveGoalEdit = saveGoalEdit;
+window.delGoal = delGoal;
+window.doDelGoal = doDelGoal;
+window.setSummaryRange = setSummaryRange;
+window.saveHealthGoal = saveHealthGoal;
+window.healthLog = healthLog;
+window.pickMood = pickMood;
+window.saveDailyReview = saveDailyReview;
 window.addNode = addNode;
 window.doAddNode = doAddNode;
 window.delNode = delNode;

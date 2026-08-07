@@ -1,5 +1,5 @@
 /* ============================================================
-   考研错题本 · 本地服务（v1.6.0）
+   个人工作台 · 本地服务（v1.11.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
    ============================================================ */
@@ -46,6 +46,38 @@ db.exec(`
     token TEXT PRIMARY KEY,
     username TEXT NOT NULL,
     expires_at INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS todos(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    done INTEGER DEFAULT 0,
+    due TEXT DEFAULT '',
+    priority INTEGER DEFAULT 0,
+    created_at INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS goals(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    category TEXT DEFAULT '学习',
+    progress INTEGER DEFAULT 0,
+    milestone TEXT DEFAULT '',
+    target_date TEXT DEFAULT '',
+    created_at INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS health_logs(
+    day TEXT PRIMARY KEY,
+    sport_times INTEGER DEFAULT 0,
+    sport_minutes INTEGER DEFAULT 0,
+    sleep_hours REAL DEFAULT 0,
+    note TEXT DEFAULT ''
+  );
+  CREATE TABLE IF NOT EXISTS daily_reviews(
+    day TEXT PRIMARY KEY,
+    done TEXT DEFAULT '',
+    stuck TEXT DEFAULT '',
+    plan TEXT DEFAULT '',
+    mood TEXT DEFAULT '',
+    updated_at INTEGER
   );
 `);
 
@@ -178,6 +210,42 @@ function readStudy() {
   };
 }
 
+function readTodos() {
+  return db.prepare("SELECT id, title, done, due, priority, created_at FROM todos ORDER BY done, due, priority DESC, id DESC").all()
+    .map(r => ({ id: r.id, title: r.title, done: !!r.done, due: r.due || "", priority: r.priority || 0, createdAt: r.created_at }));
+}
+
+function readGoals() {
+  return db.prepare("SELECT id, title, category, progress, milestone, target_date, created_at FROM goals ORDER BY id").all()
+    .map(r => ({ id: r.id, title: r.title, category: r.category, progress: r.progress || 0,
+      milestone: r.milestone || "", targetDate: r.target_date || "", createdAt: r.created_at }));
+}
+
+function readHealth() {
+  const rows = db.prepare("SELECT day, sport_times, sport_minutes, sleep_hours, note FROM health_logs ORDER BY day").all();
+  return rows.map(r => ({ day: r.day, sportTimes: r.sport_times || 0, sportMinutes: r.sport_minutes || 0,
+    sleepHours: r.sleep_hours || 0, note: r.note || "" }));
+}
+
+function readReviews() {
+  const rows = db.prepare("SELECT day, done, stuck, plan, mood, updated_at FROM daily_reviews ORDER BY day DESC").all();
+  return rows.map(r => ({ day: r.day, done: r.done || "", stuck: r.stuck || "", plan: r.plan || "",
+    mood: r.mood || "", updatedAt: r.updated_at }));
+}
+
+function readPersonal() {
+  const s = readSettings();
+  let goal = { times: 2, minutes: 90 };
+  try { goal = { ...goal, ...JSON.parse(s.healthGoal || "{}") }; } catch (e) { /* ignore */ }
+  return {
+    todos: readTodos(),
+    goals: readGoals(),
+    health: readHealth(),
+    reviews: readReviews(),
+    healthGoal: goal
+  };
+}
+
 function getDb() {
   const questions = readQuestions();
   const reviewLogs = readLogs();
@@ -190,6 +258,7 @@ function getDb() {
     study: readStudy(),
     remindOn: s.remindOn !== "false",
     reviewCfg: JSON.parse(s.reviewCfg || '{"sub":"all","chapter":"","lv":"all","num":3}'),
+    personal: readPersonal(),
     qidSeq: Math.max(100, ...questions.map(q => q.id || 0)),
     reviewSeq: reviewLogs.length || 0
   };
@@ -198,7 +267,7 @@ function getDb() {
 function saveDb(data) {
   db.exec("BEGIN");
   try {
-    db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days;");
+    db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM health_logs; DELETE FROM daily_reviews;");
     const insQ = db.prepare(`INSERT INTO questions
       (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
        wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate)
@@ -229,6 +298,16 @@ function saveDb(data) {
     insS.run("blur_prompt", String(!!(data.study && data.study.blurPrompt)));
     const insD = db.prepare("INSERT INTO study_days(day, seconds) VALUES (?,?)");
     Object.entries((data.study && data.study.perDay) || {}).forEach(([day, sec]) => insD.run(day, sec));
+    const p = data.personal || {};
+    const insT = db.prepare("INSERT INTO todos(title, done, due, priority, created_at) VALUES (?,?,?,?,?)");
+    (p.todos || []).forEach(t => insT.run(String(t.title || "").slice(0, 200), t.done ? 1 : 0, t.due || "", t.priority || 0, t.createdAt || Date.now()));
+    const insG = db.prepare("INSERT INTO goals(title, category, progress, milestone, target_date, created_at) VALUES (?,?,?,?,?,?)");
+    (p.goals || []).forEach(g => insG.run(String(g.title || "").slice(0, 200), g.category || "学习", g.progress || 0, g.milestone || "", g.targetDate || "", g.createdAt || Date.now()));
+    const insH = db.prepare("INSERT INTO health_logs(day, sport_times, sport_minutes, sleep_hours, note) VALUES (?,?,?,?,?)");
+    (p.health || []).forEach(h => insH.run(h.day, h.sportTimes || 0, h.sportMinutes || 0, h.sleepHours || 0, h.note || ""));
+    const insR = db.prepare("INSERT INTO daily_reviews(day, done, stuck, plan, mood, updated_at) VALUES (?,?,?,?,?,?)");
+    (p.reviews || []).forEach(rv => insR.run(rv.day, rv.done || "", rv.stuck || "", rv.plan || "", rv.mood || "", rv.updatedAt || Date.now()));
+    if (p.healthGoal) insS.run("healthGoal", JSON.stringify(p.healthGoal));
     db.exec("COMMIT");
     return { ok: true };
   } catch (e) {
@@ -472,7 +551,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`考研错题本本地服务已启动：http://127.0.0.1:${PORT}`);
+  console.log(`个人工作台本地服务已启动：http://127.0.0.1:${PORT}`);
   console.log(`数据库：${DB_FILE}（SQLite）`);
   console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);
   console.log("按 Ctrl+C 停止服务");
