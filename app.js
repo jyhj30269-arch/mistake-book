@@ -1,8 +1,9 @@
 /* ============================================================
-   考研错题本 · 业务逻辑 v1.7.0
-   版本：v1.7.0（录入页拆分题目/过程双上传区 + 每题无过程选项 + MinerU 真实识别）
+   考研错题本 · 业务逻辑 v1.7.1
+   版本：v1.7.1（修复：粘贴区归属 / 双原图对照 / 识别结果归属 / 公式渲染预处理）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
-   录入页双上传区（题目/过程各自多张）/ 该题无过程选项 / MinerU 真实识别（服务端 mineru-open-api）/
+   录入页双上传区 + 粘贴区记忆 + 双原图对照 + 公式渲染预览（LaTeX 预处理）/
+   该题无过程选项 / MinerU 真实识别（服务端 mineru-open-api）/
    本地 SQLite（server.js + node:sqlite，mistake-book.db，种子数据在服务端）/
    复习自由选题（题目导航/跳过/任意切换）/
    设置简化（新增科目/统一弹窗/加分支示例）/ MinerU 真实识别（可配置+连通性测试）/
@@ -92,7 +93,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.7.1";
 
 const TREE = [
   {
@@ -432,22 +433,45 @@ function toggleInputKp(el) {
 
 function bindInputPreview() {
   const render = () => {
-    const box = $("#input-preview");
-    box.innerHTML = "";
-    const tex = $("#input-title").value.trim();
-    if (tex) {
-      const span = document.createElement("span");
-      span.className = "katex-render";
-      span.setAttribute("data-tex", tex);
-      span.setAttribute("data-display", "1");
-      box.appendChild(span);
-      renderMath(box);
-    } else {
-      box.textContent = "输入 LaTeX 后实时预览（无需 $ 包裹）";
-    }
+    renderTexPreview($("#input-preview"), $("#input-title").value);
+    renderTexPreview($("#input-solution-preview"), $("#input-solution").value);
   };
   $("#input-title").addEventListener("input", render);
   $("#input-solution").addEventListener("input", render);
+}
+
+/* MinerU 输出 → KaTeX 可渲染：去 $ 包裹 / HTML 标签 / align→aligned 等 */
+function normalizeLatex(s) {
+  let t = String(s || "");
+  t = t.replace(/```latex|```/g, "");
+  t = t.replace(/\$\$/g, "").replace(/\\\(|\\\)/g, "").replace(/\\\[|\\\]/g, "");
+  t = t.replace(/\$([^$]+)\$/g, (m, inner) => inner.trim());
+  t = t.replace(/<[^>]+>/g, " ");
+  t = t.replace(/\\begin\{align\*\}/g, "\\begin{aligned}").replace(/\\end\{align\*\}/g, "\\end{aligned}");
+  t = t.replace(/\\begin\{align\}/g, "\\begin{aligned}").replace(/\\end\{align\}/g, "\\end{aligned}");
+  t = t.replace(/\\begin\{equation\*\}/g, "").replace(/\\end\{equation\*\}/g, "");
+  t = t.replace(/\\begin\{equation\}/g, "").replace(/\\end\{equation\}/g, "");
+  t = t.replace(/\\begin\{array\}/g, "\\begin{aligned}").replace(/\\end\{array\}/g, "\\end{aligned}");
+  t = t.replace(/\\text\{([^}]*)\}/g, (m, inner) => `\\text{${inner.replace(/[{}]/g, "")}}`);
+  return t.replace(/\s+/g, " ").trim();
+}
+
+function renderTexPreview(box, tex) {
+  if (!box) return;
+  box.innerHTML = "";
+  const clean = normalizeLatex(tex);
+  if (!clean) {
+    box.innerHTML = `<span class="small muted">渲染预览（公式会自动渲染）</span>`;
+    return;
+  }
+  try {
+    const node = document.createElement("div");
+    if (typeof katex !== "undefined") katex.render(clean, node, { throwOnError: false, displayMode: true });
+    else node.textContent = clean;
+    box.appendChild(node);
+  } catch (e) {
+    box.textContent = clean;
+  }
 }
 
 /* ============================================================
@@ -476,6 +500,7 @@ function addInputPhotos(kind) {
   el.click();
 }
 async function pasteInput(kind) {
+  window.__pasteKind = kind;
   try {
     if (navigator.clipboard && navigator.clipboard.read) {
       const items = await navigator.clipboard.read();
@@ -484,15 +509,16 @@ async function pasteInput(kind) {
         const t = it.types.find(x => x.startsWith("image/"));
         if (t) files.push(await it.getType(t));
       }
-      if (files.length) { handleFiles(files, kind); toast(`已粘贴 ${files.length} 张截图`, "success"); return; }
+      if (files.length) { handleFiles(files, kind); toast(`已粘贴 ${files.length} 张截图到${kind === "s" ? "解题" : "题目"}区`, "success"); return; }
     }
   } catch (e) { /* 无剪贴板权限时引导用户直接 Ctrl+V */ }
-  toast("请直接按 Ctrl+V 粘贴截图");
+  toast(`请按 Ctrl+V 粘贴到${kind === "s" ? "解题" : "题目"}区`);
 }
 document.addEventListener("paste", e => {
   if (!$("#view-input") || $("#view-input").style.display === "none") return;
+  const kind = window.__pasteKind || "q";
   const files = e.clipboardData && e.clipboardData.files;
-  if (files && files.length) { handleFiles(files, "q"); toast(`已粘贴 ${files.length} 张截图到题目区`, "success"); }
+  if (files && files.length) { handleFiles(files, kind); toast(`已粘贴 ${files.length} 张截图到${kind === "s" ? "解题" : "题目"}区`, "success"); }
 });
 
 function handleFiles(files, kind) {
@@ -612,6 +638,7 @@ function buildQueue() {
       sImgId: sId || null,
       titleTex: "",
       solutionTex: "",
+      wrongAnswer: "",
       status: "pending",
       noSolution: !!x.noSolution || !sId
     };
@@ -664,11 +691,13 @@ function captureCurrent() {
   const cur = inputQueue[inputCursor];
   cur.titleTex = $("#input-title").value.trim();
   cur.solutionTex = $("#input-solution").value.trim();
+  cur.wrongAnswer = $("#input-wrong").value.trim();
 }
 
 function renderInputReview() {
   if (!inputQueue.length) {
-    $("#input-img-box").innerHTML = "暂无图片<br />添加图片后此处显示原图";
+    $("#input-q-img-box").innerHTML = "暂无题目图";
+    $("#input-s-img-box").innerHTML = "暂无过程图（该题可无过程）";
     $("#input-cursor").textContent = "0 / 0";
     $("#input-prev-btn").style.display = "none";
     $("#input-next-btn").style.display = "none";
@@ -680,13 +709,16 @@ function renderInputReview() {
   const qImg = inputImgs.find(x => x.id === cur.qImgId);
   const sImg = cur.sImgId ? inputImgs.find(x => x.id === cur.sImgId) : null;
   if (qImg) {
-    $("#input-img-box").innerHTML =
-      `<img src="${qImg.dataUrl}" style="max-width:100%;border-radius:8px;" alt="题目原图" />` +
-      (sImg ? `<div class="small muted mt-8">解题图（识别后填入解题过程）</div><img src="${sImg.dataUrl}" style="max-width:100%;border-radius:8px;margin-top:6px;" alt="解题原图" />` : "");
+    $("#input-q-img-box").innerHTML = `<img src="${qImg.dataUrl}" style="max-width:100%;border-radius:8px;" alt="题目原图" />`;
   }
+  $("#input-s-img-box").innerHTML = sImg
+    ? `<img src="${sImg.dataUrl}" style="max-width:100%;border-radius:8px;" alt="解题原图" />`
+    : `<div class="small muted">${cur.noSolution ? "该题标记为「无过程」" : "暂无解题过程图（可留空）"}</div>`;
   $("#input-title").value = cur.titleTex || "";
   $("#input-solution").value = cur.solutionTex || "";
+  $("#input-wrong").value = cur.wrongAnswer || "";
   $("#input-title").dispatchEvent(new Event("input"));
+  $("#input-solution").dispatchEvent(new Event("input"));
   $("#input-cursor").textContent = `${inputCursor + 1} / ${inputQueue.length}`;
   $("#input-prev-btn").style.display = inputCursor > 0 ? "" : "none";
   $("#input-next-btn").style.display = inputCursor < inputQueue.length - 1 ? "" : "none";
@@ -716,9 +748,9 @@ function inputNext() { if (inputCursor < inputQueue.length - 1) { captureCurrent
 
 function toggleTexView() {
   texView = texView === "render" ? "source" : "render";
-  const pv = $("#input-preview");
-  if (!pv) return;
-  pv.style.display = texView === "render" ? "" : "none";
+  const p1 = $("#input-preview"), p2 = $("#input-solution-preview");
+  if (p1) p1.style.display = texView === "render" ? "" : "none";
+  if (p2) p2.style.display = texView === "render" ? "" : "none";
   toast(texView === "render" ? "渲染视图（KaTeX）" : "源码视图");
 }
 
@@ -742,7 +774,9 @@ function resetInput() {
   $("#input-title").value = "";
   $("#input-solution").value = "";
   $("#input-wrong").value = "";
-  $("#input-preview").textContent = "输入 LaTeX 后实时预览（无需 $ 包裹）";
+  renderTexPreview($("#input-preview"), "");
+  renderTexPreview($("#input-solution-preview"), "");
+  window.__pasteKind = "q";
   inputTags.clear();
   $$("#input-tags .chip").forEach(c => c.classList.remove("on"));
   inputImgs = [];
@@ -753,13 +787,14 @@ function resetInput() {
   $("#batch-hint").textContent = "";
   $("#input-ocr-state").textContent = "待识别";
   $("#input-ocr-progress-wrap").style.display = "none";
-  $("#input-img-box").innerHTML = "暂无图片<br />添加图片后此处显示原图";
+  $("#input-q-img-box").innerHTML = "暂无题目图";
+  $("#input-s-img-box").innerHTML = "暂无过程图（该题可无过程）";
   renderInput();
   toast("已清空，重新录入");
 }
 
 /* ---------- 保存（单题去重弹窗 / 批量不弹窗） ---------- */
-function collectForm(titleTex, solutionTex) {
+function collectForm(titleTex, solutionTex, wrongAnswer) {
   const kps = $$("#input-kps .chip.on").map(c => c.dataset.k).filter(Boolean);
   return mkQ({
     type: inputType,
@@ -770,7 +805,7 @@ function collectForm(titleTex, solutionTex) {
     tags: Array.from(inputTags),
     titleTex,
     solutionTex: solutionTex !== undefined ? solutionTex : $("#input-solution").value.trim(),
-    wrongAnswer: $("#input-wrong").value.trim()
+    wrongAnswer: wrongAnswer !== undefined ? wrongAnswer : $("#input-wrong").value.trim()
   });
 }
 
@@ -807,7 +842,7 @@ function saveAllQuestions() {
   let n = 0;
   inputQueue.forEach(it => {
     if (!it.titleTex || it.status === "saved") return;
-    questions.push(collectForm(it.titleTex, it.solutionTex));
+    questions.push(collectForm(it.titleTex, it.solutionTex, it.wrongAnswer));
     it.status = "saved";
     n++;
   });

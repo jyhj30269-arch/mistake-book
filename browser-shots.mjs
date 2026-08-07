@@ -75,10 +75,21 @@ try {
   const full = await call("Page.captureScreenshot", { captureBeyondViewport: true });
   writeFileSync(OUT + which + "-dashboard-full.png", Buffer.from(full.data, "base64"));
 
-  // 录入页（题目/过程双上传区）
-  await evalJS(`go("input"); true`);
-  await sleep(800);
-  const inputShot = await call("Page.captureScreenshot");
+  // 录入页：上传题目+过程 → 自动配对 → 识别 → 校对（双原图 + 公式预览）
+  await evalJS(`go("input"); resetInput(); true`);
+  await evalJS(`
+    (async () => {
+      const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+      const bin = atob(b64); const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      handleFiles([new File([arr], "q1.png", { type: "image/png" })], "q");
+      handleFiles([new File([arr], "s1.png", { type: "image/png" })], "s");
+    })()
+  `);
+  await sleep(600);
+  await evalJS(`autoPairInput(); startInputOCR(); true`);
+  await sleep(3200);
+  const inputShot = await call("Page.captureScreenshot", { captureBeyondViewport: true });
   writeFileSync(OUT + which + "-input.png", Buffer.from(inputShot.data, "base64"));
 
   // 滚动到复习区
