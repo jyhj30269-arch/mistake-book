@@ -53,19 +53,34 @@
   }
 
   const API = {
-    mode: "local",   // "local"（本机测试）| "remote"（后端接入）
-    base: "",        // Phase B 后端地址，如 "http://localhost:8000/api"
+    mode: "remote",  // "local"（旧内存/localStorage 模式）| "remote"（本地 SQLite 服务）
+    // 本地服务（server.js）同源提供 API；file:// 直开时回退 8788
+    base: (typeof location !== "undefined" && location.protocol.startsWith("http"))
+      ? location.origin + "/api"
+      : "http://127.0.0.1:8788/api",
     version: 1,
 
     /* ================= 数据层（本地实现） ================= */
 
     /** 读取整库（本地模式；远端模式应改为 GET /api/db 或逐表拉取） */
-    loadAll() {
+    async loadAll() {
+      if (this.mode === "remote") {
+        const res = await fetch(`${this.base}/db`);
+        if (!res.ok) throw new Error(`本地服务返回 ${res.status}`);
+        return res.json();
+      }
       return readDB();
     },
 
     /** 保存整库快照（本地模式；远端模式由各写接口替代） */
     saveAll(data) {
+      if (this.mode === "remote") {
+        return fetch(`${this.base}/db`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        }).then(res => { if (!res.ok) throw new Error(`保存到本地服务失败 ${res.status}`); return res.json(); });
+      }
       writeDB({ schema_version: 1, saved_at: Date.now(), ...data });
     },
 
@@ -85,20 +100,19 @@
      *   远端（Phase C）返回 { taskId }，再用 ocrStatus 轮询结果。
      */
     async ocrRecognize(image, opts = {}) {
-      if (this.mode === "remote") {
-        // Phase B：POST `${this.base}/ocr/recognize`（multipart 图片）
-        // Phase C：后端内部转发 MinerU，返回 { taskId }
-        const fd = new FormData();
-        fd.append("file", image);
-        fd.append("isSolution", String(!!opts.isSolution));
-        const res = await fetch(`${this.base}/ocr/recognize`, { method: "POST", body: fd });
-        if (!res.ok) throw new Error(`OCR 提交失败 ${res.status}`);
-        return res.json();
-      }
       // 本地真实识别：配置了 MinerU 则走真实 API，否则用模拟
       const cfg = this.mineruConfig();
       if (cfg.engine === "mineru" && cfg.token) {
         return this.ocrRecognizeMineru(image, opts);
+      }
+      if (this.mode === "remote") {
+        const res = await fetch(`${this.base}/ocr/recognize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dataUrl: image.dataUrl, isSolution: !!opts.isSolution })
+        });
+        if (!res.ok) throw new Error(`OCR 提交失败 ${res.status}`);
+        return res.json();
       }
       // 本地模拟：1~2 秒返回示例 LaTeX（低置信度字符黄色高亮）
       await delay(900 + Math.random() * 900);

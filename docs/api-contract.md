@@ -1,17 +1,14 @@
 # 考研错题本 · 前端 API 接口契约
 
-> 版本：v1 ｜ 状态：Phase A（local 模式，本机测试）
+> 版本：v1 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
 >
 > 本文件与 `../api.js` 一一对应。后端接入时按此契约实现同名方法即可，前端业务代码无需改动。
 
-## 一、切换方式
+## 一、当前接入方式
 
-后端就绪后，在 `api.js` 顶部修改两处：
+本地阶段由 `server.js` 提供同一契约（`GET/POST /api/db`、`/api/questions`、`/api/review-logs`、`/api/study`、`/api/dedup/check`、`/api/ocr/recognize`），数据存 `mistake-book.db`（SQLite）。前端 `api.js` 为 remote 模式，base 自动取当前服务地址。
 
-```js
-API.mode = "remote";                    // "local" → "remote"
-API.base = "https://你的后端域名/api";   // 或本地联调 http://localhost:8000/api
-```
+云端后端接入时，把 `server.js` 替换为远端实现（同一套方法签名）即可，前端零改动。
 
 ## 二、通用约定
 

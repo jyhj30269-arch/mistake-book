@@ -10,10 +10,20 @@ const BIN = {
 };
 const which = process.argv[2] || "edge";
 const EXE = BIN[which];
-const PORT = 9340;
-const URL = "file:///C:/Users/32949/Desktop/assets/index.html?auto=1&view=dashboard";
+const PORT = 9393;
+const CDP_PORT = PORT + 100;
+const URL = `http://127.0.0.1:${PORT}/index.html?auto=1&view=dashboard`;
 const OUT = "C:/Users/32949/Desktop/assets/_shots/";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const testDir = mkdtempSync(join(tmpdir(), "mb-browser-"));
+const dbFile = join(testDir, "test.db");
+const server = spawn("node", ["server.js"], {
+  cwd: "C:/Users/32949/Desktop/assets",
+  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile },
+  stdio: "ignore"
+});
+await sleep(1200);
 
 async function getWsUrl(port) {
   for (let i = 0; i < 40; i++) {
@@ -31,11 +41,11 @@ async function getWsUrl(port) {
 const profile = mkdtempSync(join(tmpdir(), "mb-browser-"));
 const browser = spawn(EXE, [
   "--headless=new", "--disable-gpu", "--no-first-run", "--force-device-scale-factor=1",
-  "--window-size=1920,1080", `--user-data-dir=${profile}`, `--remote-debugging-port=${PORT}`, "about:blank"
+  "--window-size=1920,1080", `--user-data-dir=${profile}`, `--remote-debugging-port=${CDP_PORT}`, "about:blank"
 ], { stdio: "ignore" });
 
 try {
-  const ws = new WebSocket(await getWsUrl(PORT));
+  const ws = new WebSocket(await getWsUrl(CDP_PORT));
   await new Promise((res, rej) => { ws.addEventListener("open", res); ws.addEventListener("error", rej); });
   let seq = 0;
   const pending = new Map();
@@ -117,4 +127,8 @@ try {
   await sleep(600);
   try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); }
   catch (e) { console.warn("清理临时目录失败（可忽略）:", e.message); }
+  server.kill();
+  await sleep(300);
+  try { rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); }
+  catch (e) { console.warn("清理临时数据库失败（可忽略）:", e.message); }
 }

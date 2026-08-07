@@ -13,8 +13,19 @@ import { join } from "node:path";
 const EDGE = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const EXE = process.env.SMOKE_BROWSER === "chrome" ? CHROME : EDGE;
-const PORT = 9333;
-const URL = "file:///C:/Users/32949/Desktop/assets/index.html?auto=1&view=input";
+const PORT = 9391;
+const CDP_PORT = PORT + 100;
+const URL = `http://127.0.0.1:${PORT}/index.html?auto=1&view=input`;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const testDir = mkdtempSync(join(tmpdir(), "mb-smoke-"));
+const dbFile = join(testDir, "test.db");
+const server = spawn("node", ["server.js"], {
+  cwd: "C:/Users/32949/Desktop/assets",
+  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile },
+  stdio: "ignore"
+});
+await sleep(1200);
 
 function cdp(ws) {
   let seq = 0;
@@ -42,8 +53,6 @@ function cdp(ws) {
   };
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 async function getWsUrl(port) {
   for (let i = 0; i < 40; i++) {
     try {
@@ -60,7 +69,7 @@ async function getWsUrl(port) {
 const profile = mkdtempSync(join(tmpdir(), "mb-smoke-"));
 const browser = spawn(EXE, [
   "--headless=new", "--disable-gpu", "--no-first-run",
-  `--user-data-dir=${profile}`, `--remote-debugging-port=${PORT}`, "about:blank"
+  `--user-data-dir=${profile}`, `--remote-debugging-port=${CDP_PORT}`, "about:blank"
 ], { stdio: "ignore" });
 
 let failures = 0;
@@ -70,7 +79,7 @@ function check(name, cond) {
 }
 
 try {
-  const wsUrl = await getWsUrl(PORT);
+  const wsUrl = await getWsUrl(CDP_PORT);
   const ws = new WebSocket(wsUrl);
   await new Promise((res, rej) => { ws.addEventListener("open", res); ws.addEventListener("error", rej); });
   const client = cdp(ws);
@@ -106,7 +115,8 @@ try {
   await client.eval(`saveCurrentQuestion()`);
   await sleep(400);
   check("单题：保存后入库 16 题", await client.eval(`questions.length === 16`));
-  check("单题：localStorage 已写入", await client.eval(`(JSON.parse(localStorage.getItem("mb-local-db-v1")) || {}).questions && JSON.parse(localStorage.getItem("mb-local-db-v1")).questions.length === 16`));
+  const dbAfterSave = await (await fetch(`http://127.0.0.1:${PORT}/api/db`)).json();
+  check("单题：已写入 SQLite", dbAfterSave.questions.length === 16);
 
   // 5) 批量：回到录入页，注入 3 张（2 题 + 1 解题）
   await client.eval(`go("input")`);
@@ -146,9 +156,13 @@ try {
   failures++;
 } finally {
   browser.kill();
-  await sleep(600);
+  await sleep(500);
   try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); }
   catch (e) { console.warn("清理临时目录失败（可忽略）:", e.message); }
+  server.kill();
+  await sleep(300);
+  try { rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); }
+  catch (e) { console.warn("清理临时数据库失败（可忽略）:", e.message); }
 }
 
 console.log(failures === 0 ? "\n全部通过 ✔" : `\n${failures} 项失败 ✘`);

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 考研错题本 v1.5.0 -->
+  <!-- 考研错题本 v1.6.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>考研错题本</title>
@@ -18,7 +18,7 @@
         <p>拍照录入 → OCR 识别 → 人工校对 → 分类归档 → 随机抽题复习 → 六级掌握度评估。</p>
         <div class="flow">
           <div><span class="dot"></span>单题 / 批量识别合为一个入口</div>
-          <div><span class="dot"></span>数据先存本机（localStorage）联测</div>
+          <div><span class="dot"></span>数据存本地 SQLite（mistake-book.db）</div>
           <div><span class="dot"></span>前端 API 接口已预留，后端按契约接入</div>
         </div>
       </div>
@@ -28,7 +28,7 @@
             <div class="brand-logo">错</div>
             <div>
               <div class="brand-name">个人工作台</div>
-              <div class="brand-sub">本机测试版 · API local 模式</div>
+              <div class="brand-sub">本地版 · 数据存 SQLite</div>
             </div>
           </div>
           <div class="field">
@@ -67,7 +67,7 @@
         <a class="nav-item" data-view="settings"><span class="icon">⚙️</span>设置</a>
 
         <div class="side-foot">
-          <div class="small muted">数据：本机浏览器（localStorage）<br />API：local 模式 · 接口已预留<br /></div>
+          <div class="small muted">数据：本地 SQLite（mistake-book.db）<br />由本地服务提供<br /></div>
           <button class="btn btn-sm mt-8" onclick="doLogout()">退出登录</button>
         </div>
       </nav>
@@ -461,18 +461,17 @@
           <div class="topbar">
             <div>
               <div class="page-title">⚙️ 设置</div>
-              <div class="page-sub">数据存储 · 接口模式 · 复习提醒 · 知识点管理</div>
+              <div class="page-sub">数据存储（SQLite）· OCR 服务 · 复习提醒 · 知识点管理</div>
             </div>
           </div>
 
           <div class="card">
             <div class="card-head"><div class="card-title">数据与接口</div><span class="tag tag-primary" id="api-mode-tag">API: local</span></div>
             <div class="small muted">
-              当前处于 <b>Phase A · 本机测试</b>：数据保存在本机浏览器（localStorage），OCR 为模拟识别。
-              前端 API 接口（<span class="mono">api.js</span>）已预留，后端完成后切换为 remote 模式即可，业务代码无需改动。
+              当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.5.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.6.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">

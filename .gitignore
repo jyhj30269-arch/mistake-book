@@ -1,5 +1,7 @@
 # 生成的预览截图
 _shots/
+mistake-book.db
+mistake-book.db-*
 
 # 系统 / 临时文件
 Thumbs.db

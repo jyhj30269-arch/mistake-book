@@ -1,7 +1,8 @@
 /* ============================================================
-   考研错题本 · 业务逻辑 v1.5.0
-   版本：v1.5.0（复习自由选题/跳过 + 设置简化 + MinerU 可配置接入）
+   考研错题本 · 业务逻辑 v1.6.0
+   版本：v1.6.0（数据层切换：本地 SQLite 服务，页面不再内置测试数据）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
+   本地 SQLite（server.js + node:sqlite，mistake-book.db，种子数据在服务端）/
    复习自由选题（题目导航/跳过/任意切换）/
    设置简化（新增科目/统一弹窗/加分支示例）/ MinerU 真实识别（可配置+连通性测试）/
    真实 JSON 导入 / 复习断点续传 / 按天学习时长 / 题目编辑 / 知识点增删改 /
@@ -90,7 +91,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.6.0";
 
 const TREE = [
   {
@@ -266,6 +267,7 @@ function dupCountFor(q) {
 
 /* ---------------- 导航 ---------------- */
 let currentView = "dashboard";
+let serverDown = false; // 本地 SQLite 服务是否可用
 function go(view) {
   $$("#view-app section").forEach(s => s.style.display = "none");
   $("#view-" + view).style.display = "block";
@@ -1613,6 +1615,8 @@ function renderSettings() {
   $$("#rev-num-default .chip").forEach(x => x.classList.toggle("on", x.dataset.v === String(reviewCfg.num)));
   const vEl = $("#app-version");
   if (vEl) vEl.textContent = "v" + APP_VERSION;
+  const apiTag = $("#api-mode-tag");
+  if (apiTag) apiTag.textContent = serverDown ? "API: 本地服务未启动" : "API: 本地 SQLite";
   loadOcrConfig();
   const box = $("#settings-tree");
   box.innerHTML = `
@@ -2055,7 +2059,7 @@ document.addEventListener("visibilitychange", () => {
 /* ---------------- 本地持久化（Phase A：本机 localStorage） ---------------- */
 function persistLocal() {
   if (!window.API) return;
-  API.saveAll({
+  const data = {
     questions,
     reviewLogs,
     tree: TREE,
@@ -2064,12 +2068,23 @@ function persistLocal() {
     study: { seconds: study.seconds, blurPrompt: study.blurPrompt, perDay: study.perDay },
     remindOn,
     reviewCfg: { ...reviewCfg }
+  };
+  API.saveAll(data).catch(e => {
+    serverDown = true;
+    console.warn("保存到本地服务失败：", e.message);
   });
 }
 
-function loadLocal() {
-  const d = API.loadAll();
+async function loadLocal() {
+  let d = null;
+  try { d = await API.loadAll(); }
+  catch (e) {
+    serverDown = true;
+    console.warn("本地服务未连接：", e.message);
+    return false;
+  }
   if (!d || !Array.isArray(d.questions)) return false;
+  serverDown = false;
   questions = d.questions;
   reviewLogs = d.reviewLogs || [];
   if (Array.isArray(d.tree) && d.tree.length) {
@@ -2090,13 +2105,12 @@ function loadLocal() {
 
 function resetDemoData() {
   openModal("重置演示数据", `
-    <div class="small muted">将清空本机（localStorage）中的全部数据，并恢复演示题库。此操作不可撤销，建议先「导出 JSON 备份」。</div>`,
+    <div class="small muted">将清空本地数据库中的全部数据，并恢复演示题库。此操作不可撤销，建议先「导出 JSON 备份」。</div>`,
     `<button class="btn" onclick="closeModal()">取消</button>
      <button class="btn btn-danger" onclick="closeModal();doResetDemo()">确认重置</button>`
   );
 }
 function doResetDemo() {
-  API.resetAll();
   reviewLogs = [];
   study.seconds = 0;
   seed();
@@ -2106,15 +2120,17 @@ function doResetDemo() {
 }
 
 /* ---------------- 初始化 ---------------- */
-if (!loadLocal()) { seed(); persistLocal(); }
-setInterval(studyTick, 1000);
-$$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => { if (a.dataset.view) go(a.dataset.view); }));
-document.addEventListener("click", e => {
-  const t = e.target.closest("[data-goto]");
-  if (t) go(t.dataset.goto);
-});
-window.go = go;
-window.goDashSection = goDashSection;
+(async () => {
+  const ok = await loadLocal();
+  if (!ok) { seed(); persistLocal(); }
+  setInterval(studyTick, 1000);
+  $$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => { if (a.dataset.view) go(a.dataset.view); }));
+  document.addEventListener("click", e => {
+    const t = e.target.closest("[data-goto]");
+    if (t) go(t.dataset.goto);
+  });
+  window.go = go;
+  window.goDashSection = goDashSection;
 window.doLogin = doLogin;
 window.doLogout = doLogout;
 window.goSearch = goSearch;
@@ -2207,3 +2223,4 @@ if (location.search.includes("auto=1")) {
   const v = new URLSearchParams(location.search).get("view");
   if (v && $("#view-" + v)) go(v);
 }
+})();

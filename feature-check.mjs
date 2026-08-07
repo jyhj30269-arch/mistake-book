@@ -5,9 +5,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const EXE = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-const PORT = 9342;
-const URL = "file:///C:/Users/32949/Desktop/assets/index.html?auto=1&view=dashboard";
+const PORT = 9390;
+const CDP_PORT = PORT + 100;
+const URL = `http://127.0.0.1:${PORT}/index.html?auto=1&view=dashboard`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const testDir = mkdtempSync(join(tmpdir(), "mb-feature-"));
+const dbFile = join(testDir, "test.db");
+const server = spawn("node", ["server.js"], {
+  cwd: "C:/Users/32949/Desktop/assets",
+  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile },
+  stdio: "ignore"
+});
+await sleep(1200);
 
 async function getWsUrl(port) {
   for (let i = 0; i < 40; i++) {
@@ -25,7 +35,7 @@ async function getWsUrl(port) {
 const profile = mkdtempSync(join(tmpdir(), "mb-feature-"));
 const browser = spawn(EXE, [
   "--headless=new", "--disable-gpu", "--no-first-run", "--force-device-scale-factor=1",
-  "--window-size=1600,1000", `--user-data-dir=${profile}`, `--remote-debugging-port=${PORT}`, "about:blank"
+  "--window-size=1600,1000", `--user-data-dir=${profile}`, `--remote-debugging-port=${CDP_PORT}`, "about:blank"
 ], { stdio: "ignore" });
 
 let failures = 0;
@@ -35,7 +45,7 @@ const check = (name, cond) => {
 };
 
 try {
-  const ws = new WebSocket(await getWsUrl(PORT));
+  const ws = new WebSocket(await getWsUrl(CDP_PORT));
   await new Promise((res, rej) => { ws.addEventListener("open", res); ws.addEventListener("error", rej); });
   let seq = 0;
   const pending = new Map();
@@ -107,8 +117,10 @@ try {
   check("编辑弹窗打开", editModal);
   await evalJS(`document.getElementById("edit-title").value = "\\\\lim_{x \\\\to 0} \\\\frac{\\\\tan x - x}{x^3}（已编辑）"; saveEditQuestion(); true`);
   await sleep(400);
-  const edited = await evalJS(`questions.find(q => q.id === 1).titleTex.includes("已编辑") && JSON.parse(localStorage.getItem("mb-local-db-v1")).questions.find(q => q.id === 1).titleTex.includes("已编辑")`);
-  check("编辑后题面已保存并持久化", edited);
+  const edited = await evalJS(`questions.find(q => q.id === 1).titleTex.includes("已编辑")`);
+  check("编辑后题面已更新", edited);
+  const dbCheck = await (await fetch(`http://127.0.0.1:${PORT}/api/db`)).json();
+  check("编辑已写入 SQLite", dbCheck.questions.find(q => q.id === 1).titleTex.includes("已编辑"));
 
   // 5) 知识点管理按钮
   await evalJS(`go("settings"); true`);
@@ -185,6 +197,10 @@ try {
   await sleep(500);
   try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); }
   catch (e) { console.warn("清理临时目录失败（可忽略）:", e.message); }
+  server.kill();
+  await sleep(300);
+  try { rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); }
+  catch (e) { console.warn("清理临时数据库失败（可忽略）:", e.message); }
 }
 
 console.log(failures === 0 ? "\n新功能检查全部通过 ✔" : `\n${failures} 项失败 ✘`);
