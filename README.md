@@ -4,10 +4,10 @@
 
 ## 版本
 
-- 当前版本：**v1.9.1**
+- 当前版本：**v1.10.0**
 - 版本规则见 `AGENTS.md`：每次修改代码必须升级版本号并推送到 GitHub。
 
-## 当前能力（v1.9.1）
+## 当前能力（v1.10.0）
 
 - 统一「识别录入」：单题（1 张图）与批量（多张图，题目/解题标记 + 配对）合为一个入口。
 - 真实登录：用户名/密码存 SQLite（scrypt 加盐哈希），Cookie 会话自动登录（7 天），支持注册；演示账号 admin/admin123。
@@ -52,7 +52,7 @@ node browser-shots.mjs edge     # Edge 截图 + 跨浏览器验证
 ```text
 assets/
 ├── index.html       # 应用入口（含统一识别录入页）
-├── app.js           # 业务逻辑（v1.6.0）
+├── app.js           # 业务逻辑（v1.10.0）
 ├── api.js           # API 契约层（local / remote 可切换）
 ├── server.js        # 本地服务（静态托管 + REST API + SQLite）
 ├── seed-data.js     # 种子数据（首次启动写入 SQLite）
