@@ -1,7 +1,9 @@
 /* ============================================================
-   考研错题本 · 业务逻辑 v1.0.0
-   版本：v1.0.0（统一识别录入 · 本地持久化 · API 契约层）
-   实现范围：单题与批量合一识别录入 / 分层优先+加权随机抽题 / 四档自评 /
+   考研错题本 · 业务逻辑 v1.3.0
+   版本：v1.3.0（仪表盘去重重构 · 产品经理视角全面审查）
+   实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
+   去重：合并重复指标卡 / 图表区唯一化 / 推荐入口唯一化 /
+   分层优先+加权随机抽题 / 四档自评 /
    六级掌握度+时间衰减 / 7 天去重窗口 / 多知识点 / 笔记标记 / 今日推荐 /
    导入导出预检 / 学习时长 / 统计图表
    ============================================================ */
@@ -86,6 +88,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
+const APP_VERSION = "1.3.0";
 
 const TREE = [
   {
@@ -266,16 +269,23 @@ function go(view) {
   $$(".nav-item, .mobile-tabbar a").forEach(a => a.classList.toggle("active", a.dataset.view === view));
   if (view === "dashboard") renderDashboard();
   if (view === "questions") renderQuestions();
-  if (view === "review") renderReviewConfig();
-  if (view === "stats") renderStats();
   if (view === "settings") renderSettings();
   if (view === "input") { fillInputSelects(); renderInput(); }
   window.scrollTo(0, 0);
 }
 
+/* 仪表盘内分区定位：随机复习 / 数据统计 */
+function goDashSection(sec) {
+  go("dashboard");
+  setTimeout(() => {
+    const el = document.getElementById("dash-" + sec);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 100);
+}
+
 function doLogin() {
   $("#view-login").style.display = "none";
-  $("#view-app").style.display = "flex";
+  $("#view-app").style.display = "block";
   go("dashboard");
 }
 function doLogout() {
@@ -315,71 +325,16 @@ function renderDashboard() {
   const dateEl = $("#dash-date");
   const now = new Date();
   dateEl.textContent = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} · 个人工作台`;
-  const total = questions.length;
-  const mastered = questions.filter(q => computeMastery(q.id).lv.key === "blue").length;
-  const unmastered = total - mastered;
-  $("#dash-unmastered").textContent = unmastered;
-  $("#dash-total").textContent = `${total} / ${mastered}`;
-  $("#dash-mastery-rate").textContent = `掌握率 ${Math.round(mastered / total * 100)}%`;
-  const star = questions.filter(q => q.marks.star).length;
-  const rescratch = questions.filter(q => q.marks.rescratch).length;
-  $("#dash-marks").textContent = `${rescratch} / ${star}`;
-  $("#dash-study").textContent = Math.floor(study.seconds / 60);
-  $("#dash-unmastered-delta").textContent = `错误轨道 ${questions.filter(q => ERR_TRACK.includes(displayMastery(q.id).lv.key)).length} 道`;
-  $("#dash-study-delta").textContent = study.blurPrompt ? "含 1 次补录询问" : "进入复习/录入自动计时";
 
   const rec = recommendQuestions(10);
   $("#rec-count").textContent = rec.length;
   $("#rec-desc").textContent = `已按"到期最久 + 掌握度差 + 错因权重"排序，前 ${rec.length} 道；可手动调数量`;
   window.__rec = rec;
+  renderRecPanel();
 
-  // 六级分布环图
-  const pie = $("#dash-pie");
-  if (window.echarts) {
-    const data = Object.values(LV).map(lv => ({
-      name: lv.icon + " " + lv.name,
-      value: questions.filter(q => displayMastery(q.id).lv.key === lv.key).length
-    })).filter(x => x.value > 0);
-    const chart = echarts.init(pie);
-    chart.setOption({
-      color: ["#862E2E", "#E03131", "#F76707", "#ADB5BD", "#F59F00", "#2F9E44", "#1971C2"],
-      tooltip: { trigger: "item" },
-      series: [{
-        type: "pie", radius: ["42%", "68%"],
-        label: { show: false },
-        data
-      }]
-    });
-  } else {
-    pie.innerHTML = `<div class="muted" style="padding:40px;">ECharts 未加载（离线）</div>`;
-  }
-
-  // 薄弱 TOP5
-  const weak = weakKps().slice(0, 5);
-  $("#dash-weak").innerHTML = weak.length ? weak.map(w => `
-    <div>
-      <div class="flex-between small mb-8"><b>${esc(w.name)}</b><span class="muted">${w.count} 题 · 掌握 ${w.mastered}/${w.count}</span></div>
-      <div class="progress ${w.mastered === 0 ? "progress-red" : ""}"><i style="width:${w.mastered / w.count * 100}%;"></i></div>
-    </div>`).join("") : `<div class="small muted">暂无数据</div>`;
-
-  // 近 7 天时长
-  const bars = $("#dash-bars");
-  if (window.echarts) {
-    const chart = echarts.init(bars);
-    const days = [], vals = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000);
-      days.push(`${d.getMonth() + 1}/${d.getDate()}`);
-      vals.push(Math.round(30 + Math.sin((Date.now() / 86400000 - i)) * 15 + Math.random() * 10));
-    }
-    chart.setOption({
-      tooltip: {},
-      grid: { left: 40, right: 12, top: 12, bottom: 24 },
-      xAxis: { type: "category", data: days },
-      yAxis: { type: "value", name: "分钟" },
-      series: [{ type: "bar", data: vals, itemStyle: { color: "#4C6EF5", borderRadius: [5, 5, 0, 0] }, barWidth: 18 }]
-    });
-  } else { bars.innerHTML = `<div class="muted" style="padding:40px;">ECharts 未加载</div>`; }
+  // 仪表盘内联：随机复习 + 数据统计
+  renderReviewConfig();
+  renderStats();
 }
 
 function weakKps() {
@@ -1167,7 +1122,7 @@ function renderReviewConfig() {
   $("#rev-subject").innerHTML = `<option value="all">全部子科目</option>` +
     subOptions.map(({ s, c }) => `<option value="${c.id}">${esc(s.name)} → ${esc(c.name)}</option>`).join("");
   $("#rev-subject").value = reviewCfg.sub;
-  $("#rev-subject").onchange = e => { reviewCfg.sub = e.target.value; fillRevChapter(); };
+  $("#rev-subject").onchange = e => { reviewCfg.sub = e.target.value; fillRevChapter(); persistLocal(); };
   fillRevChapter();
   $("#rev-chapter").value = reviewCfg.chapter;
   $$("#rev-lv-filter .chip").forEach(c => c.onclick = () => {
@@ -1175,15 +1130,36 @@ function renderReviewConfig() {
     $$("#rev-lv-filter .chip").forEach(x => x.classList.remove("on"));
     c.classList.add("on");
     $("#rev-deadlock-hint").style.display = reviewCfg.lv === "err" ? "" : "none";
+    persistLocal();
   });
+  $$("#rev-lv-filter .chip").forEach(x => x.classList.toggle("on", x.dataset.v === reviewCfg.lv));
+  $("#rev-deadlock-hint").style.display = reviewCfg.lv === "err" ? "" : "none";
   $$("#rev-num .chip").forEach(c => c.onclick = () => {
     reviewCfg.num = Number(c.dataset.v);
     $$("#rev-num .chip").forEach(x => x.classList.remove("on"));
     c.classList.add("on");
+    persistLocal();
   });
+  $$("#rev-num .chip").forEach(x => x.classList.toggle("on", x.dataset.v === String(reviewCfg.num)));
   $("#review-config").style.display = "";
   $("#review-play").style.display = "none";
   $("#review-done").style.display = "none";
+}
+
+function renderRecPanel() {
+  const box = $("#rec-panel");
+  if (!box) return;
+  const rec = recommendQuestions(5);
+  box.innerHTML = rec.length
+    ? rec.map(q => {
+        const m = displayMastery(q.id);
+        return `<div class="flex-between" style="gap:10px;">
+          <span class="katex-render" data-tex="${esc(q.titleTex)}" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+          ${lvTag(m.lv, m.decay)}
+        </div>`;
+      }).join("")
+    : `<div class="small muted">暂无可推荐题目</div>`;
+  renderMath(box);
 }
 
 function fillRevChapter() {
@@ -1329,8 +1305,24 @@ function showReviewDone() {
 
 /* ---------------- 统计 ---------------- */
 function renderStats() {
-  const pie = $("#stats-pie"), tagPie = $("#stats-tag-pie"), weak = $("#stats-weak"), study = $("#stats-study");
-  if (!window.echarts) { [pie, tagPie, weak, study].forEach(el => el.innerHTML = `<div class="muted" style="padding:40px;">ECharts 未加载</div>`); return; }
+  // 概览统计行
+  const total = questions.length;
+  const blue = questions.filter(q => displayMastery(q.id).lv.key === "blue").length;
+  const err = questions.filter(q => ERR_TRACK.includes(displayMastery(q.id).lv.key)).length;
+  const unmastered = total - blue;
+  const studyMin = Math.floor(study.seconds / 60);
+  const avg = total ? reviewLogs.length / total : 0;
+  $("#stats-total").textContent = total;
+  $("#stats-total-delta").textContent = `完全掌握 ${blue} 道`;
+  $("#stats-unmastered").textContent = unmastered;
+  $("#stats-unmastered-delta").textContent = `掌握率 ${total ? Math.round(blue / total * 100) : 0}%`;
+  $("#stats-err").textContent = err;
+  $("#stats-err-delta").textContent = "需优先攻克";
+  $("#stats-time").textContent = studyMin;
+  $("#stats-avg").textContent = `平均复习 ${avg.toFixed(1)} 次 / 题`;
+
+  const pie = $("#stats-pie"), tagPie = $("#stats-tag-pie"), weak = $("#stats-weak"), studyChart = $("#stats-study");
+  if (!window.echarts) { [pie, tagPie, weak, studyChart].forEach(el => el.innerHTML = `<div class="muted" style="padding:40px;">ECharts 未加载</div>`); return; }
   const lvData = Object.values(LV).map(lv => ({
     name: lv.icon + " " + lv.name,
     value: questions.filter(q => displayMastery(q.id).lv.key === lv.key).length
@@ -1367,7 +1359,7 @@ function renderStats() {
     days.push(`${d.getMonth() + 1}/${d.getDate()}`);
     vals.push(Math.round(35 + Math.sin((Date.now() / 86400000 - i) / 2) * 18 + Math.random() * 12));
   }
-  echarts.init(study).setOption({
+  echarts.init(studyChart).setOption({
     tooltip: {},
     grid: { left: 40, right: 10, top: 12, bottom: 24 },
     xAxis: { type: "category", data: days, axisLabel: { interval: 4 } },
@@ -1378,6 +1370,12 @@ function renderStats() {
 
 /* ---------------- 设置 ---------------- */
 let remindOn = true;
+function selectDefaultNum(v) {
+  reviewCfg.num = Number(v);
+  persistLocal();
+  $$("#rev-num-default .chip").forEach(x => x.classList.toggle("on", x.dataset.v === String(v)));
+  toast(`默认抽题数量已设为 ${v} 题`, "success");
+}
 function toggleRemind() {
   remindOn = !remindOn;
   const el = $("#remind-switch");
@@ -1396,6 +1394,10 @@ function demoNotify() {
 }
 
 function renderSettings() {
+  $$("#rev-num-default .chip").forEach(c => c.onclick = () => selectDefaultNum(c.dataset.v));
+  $$("#rev-num-default .chip").forEach(x => x.classList.toggle("on", x.dataset.v === String(reviewCfg.num)));
+  const vEl = $("#app-version");
+  if (vEl) vEl.textContent = "v" + APP_VERSION;
   const box = $("#settings-tree");
   box.innerHTML = TREE.map(s => `
     <div class="flex-between" style="padding:5px 8px;">
@@ -1533,8 +1535,7 @@ const study = { seconds: 0, timer: null, lastBlur: 0, blurPrompt: false };
 function studyTick() {
   study.seconds++;
   const m = Math.floor(study.seconds / 60);
-  const el = $("#study-today"); if (el) el.textContent = m;
-  const d = $("#dash-study"); if (d) d.textContent = m;
+  const d = $("#stats-time"); if (d) d.textContent = m;
   if (study.seconds % 60 === 0) persistLocal(); // 每分钟落盘一次
 }
 document.addEventListener("visibilitychange", () => {
@@ -1561,7 +1562,8 @@ function persistLocal() {
     qidSeq,
     reviewSeq,
     study: { seconds: study.seconds, blurPrompt: study.blurPrompt },
-    remindOn
+    remindOn,
+    reviewCfg: { ...reviewCfg }
   });
 }
 
@@ -1578,6 +1580,7 @@ function loadLocal() {
   reviewSeq = reviewLogs.length || 0;
   if (d.study) { study.seconds = d.study.seconds || 0; study.blurPrompt = !!d.study.blurPrompt; }
   if (typeof d.remindOn === "boolean") remindOn = d.remindOn;
+  if (d.reviewCfg) reviewCfg = { sub: "all", chapter: "", lv: "all", num: 3, ...d.reviewCfg };
   return true;
 }
 
@@ -1601,12 +1604,13 @@ function doResetDemo() {
 /* ---------------- 初始化 ---------------- */
 if (!loadLocal()) { seed(); persistLocal(); }
 setInterval(studyTick, 1000);
-$$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => go(a.dataset.view)));
+$$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => { if (a.dataset.view) go(a.dataset.view); }));
 document.addEventListener("click", e => {
   const t = e.target.closest("[data-goto]");
   if (t) go(t.dataset.goto);
 });
 window.go = go;
+window.goDashSection = goDashSection;
 window.doLogin = doLogin;
 window.doLogout = doLogout;
 window.goSearch = goSearch;
@@ -1649,6 +1653,7 @@ window.startReviewFromRec = startReviewFromRec;
 window.revealAnswer = revealAnswer;
 window.selfRate = selfRate;
 window.reviewExit = reviewExit;
+window.selectDefaultNum = selectDefaultNum;
 window.toggleRemind = toggleRemind;
 window.demoNotify = demoNotify;
 window.addNode = addNode;
