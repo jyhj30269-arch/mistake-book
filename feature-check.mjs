@@ -61,7 +61,9 @@ try {
     ws.send(JSON.stringify({ id, method, params }));
   });
   const evalJS = (expression) => call("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })
-    .then((r) => (r.exceptionDetails ? Promise.reject(new Error(r.exceptionDetails.text)) : r.result && r.result.value));
+    .then((r) => (r.exceptionDetails
+      ? Promise.reject(new Error((r.exceptionDetails.exception && r.exceptionDetails.exception.description) || r.exceptionDetails.text))
+      : r.result && r.result.value));
 
   await call("Page.enable");
   await call("Runtime.enable");
@@ -230,6 +232,34 @@ try {
   console.log("设置页按钮详情: " + JSON.stringify(settings2));
   check("设置：新增科目/＋加子科目/＋加章节/＋加知识点齐全", settings2.addSubject && settings2.addSub && settings2.addCh && settings2.addKp);
   check("设置：OCR 服务配置卡片存在且默认模拟", settings2.ocrCard && settings2.ocrTag.includes("模拟"));
+
+  // 9) v1.9 修复验证：备注可见 / 保存留页 / 选项换行 / 公式渲染
+  await evalJS(`go("input"); resetInput(); true`);
+  await sleep(400);
+  const wrongVisible = await evalJS(`getComputedStyle(document.getElementById("input-wrong")).display !== "none"`);
+  check("备注框始终可见可输入", wrongVisible);
+  const fmt = await evalJS(`formatOptions("A. 1 B. 2 C. 3 D. 4")`);
+  check("选择题选项自动换行（4 行）", String(fmt).split("\n").length === 4);
+  await evalJS(`
+    (async () => {
+      const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+      const bin = atob(b64); const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      handleFiles([new File([arr], "save.png", { type: "image/png" })], "q");
+    })()
+  `);
+  await sleep(400);
+  await evalJS(`startInputOCR(); true`);
+  await sleep(2600);
+  const beforeSave = await evalJS(`questions.length`);
+  await evalJS(`saveCurrentQuestion(); true`);
+  await sleep(600);
+  const savedStay = await evalJS(`questions.length === ${beforeSave} + 1 && getComputedStyle(document.getElementById("view-input")).display !== "none"`);
+  check("保存后留在录入页且已入库", savedStay);
+  await evalJS(`go("questions"); openDetail(questions[questions.length - 1].id); true`);
+  await sleep(500);
+  const katexRendered = await evalJS(`!!document.querySelector("#detail-body .katex-render .katex")`);
+  check("题库/详情公式已渲染（KaTeX）", katexRendered);
 
   ws.close();
 } catch (e) {

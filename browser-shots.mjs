@@ -98,6 +98,12 @@ try {
   const inputShot = await call("Page.captureScreenshot", { captureBeyondViewport: true });
   writeFileSync(OUT + which + "-input.png", Buffer.from(inputShot.data, "base64"));
 
+  // 题库页（公式渲染验证）
+  await evalJS(`go("questions"); true`);
+  await sleep(900);
+  const qShot = await call("Page.captureScreenshot", { captureBeyondViewport: true });
+  writeFileSync(OUT + which + "-questions.png", Buffer.from(qShot.data, "base64"));
+
   // 滚动到复习区
   await evalJS(`document.getElementById("dash-review").scrollIntoView({block:"start"}); true`);
   await sleep(900);

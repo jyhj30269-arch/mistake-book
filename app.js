@@ -1,7 +1,9 @@
 /* ============================================================
-   考研错题本 · 业务逻辑 v1.8.0
-   版本：v1.8.0（真实登录：cookie 会话 + 密码入库 / 修复推荐抽题 / 抽题算法验证）
+   考研错题本 · 业务逻辑 v1.9.0
+   版本：v1.9.0（备注框修复 / 保存留页 / 题库公式渲染 / 选择题选项换行）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
+   备注框始终可编辑 / 保存后留在录入页（成功失败均有提示）/
+   题库与详情公式 KaTeX 渲染 / 选择题选项自动换行 /
    Cookie 登录（SQLite users/sessions，scrypt 加盐哈希，注册/登录/登出）/
    今日推荐直接用推荐列表 / 章节选择保留 / 抽题算法覆盖性验证 /
    题目+过程自动配对（不点配对也识别）/ 默认只显示渲染公式（源码折叠可编辑）/
@@ -61,7 +63,9 @@ function renderMath(el) {
     const tex = node.getAttribute("data-tex");
     if (tex == null) return;
     try {
-      katex.render(tex, node, { throwOnError: false, displayMode: node.dataset.display === "1" });
+      const clean = normalizeLatex(tex);
+      const finalTex = node.dataset.display === "1" ? clean : clean.replace(/\\\\/g, " ");
+      katex.render(finalTex, node, { throwOnError: false, displayMode: node.dataset.display === "1" });
     } catch (e) { node.textContent = tex; }
   });
 }
@@ -96,7 +100,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.8.1";
+const APP_VERSION = "1.9.0";
 
 const TREE = [
   {
@@ -468,9 +472,20 @@ function bindInputPreview() {
   $("#input-solution").addEventListener("input", render);
 }
 
-/* MinerU 输出 → KaTeX 可渲染：去 $ 包裹 / HTML 标签 / align→aligned 等 */
+/* 选择题选项换行：A. xxx B. xxx → 每个选项独立一行 */
+function formatOptions(s) {
+  const t = String(s || "").replace(/\r\n/g, "\n");
+  const re = /([（(]?[A-Fa-f][.、)）]\s*)/g;
+  let first = true;
+  return t.replace(re, (m) => {
+    if (first) { first = false; return m; }
+    return "\n" + m;
+  });
+}
+
+/* MinerU 输出 → KaTeX 可渲染：去 $ 包裹 / HTML 标签 / align→aligned / 选项换行等 */
 function normalizeLatex(s) {
-  let t = String(s || "");
+  let t = formatOptions(String(s || ""));
   t = t.replace(/```latex|```/g, "");
   t = t.replace(/\$\$/g, "").replace(/\\\(|\\\)/g, "").replace(/\\\[|\\\]/g, "");
   t = t.replace(/\$([^$]+)\$/g, (m, inner) => inner.trim());
@@ -481,7 +496,8 @@ function normalizeLatex(s) {
   t = t.replace(/\\begin\{equation\}/g, "").replace(/\\end\{equation\}/g, "");
   t = t.replace(/\\begin\{array\}/g, "\\begin{aligned}").replace(/\\end\{array\}/g, "\\end{aligned}");
   t = t.replace(/\\text\{([^}]*)\}/g, (m, inner) => `\\text{${inner.replace(/[{}]/g, "")}}`);
-  return t.replace(/\s+/g, " ").trim();
+  t = t.replace(/\n/g, " \\\\ ");
+  return t.replace(/[ \t]+/g, " ").trim();
 }
 
 function renderTexPreview(box, tex) {
@@ -684,11 +700,10 @@ function buildQueue() {
 /* 源码 / 渲染视图切换 */
 function applyTexView() {
   const show = texView === "render" ? "none" : "";
-  const t1 = $("#input-title"), t2 = $("#input-solution"), t3 = $("#input-wrong");
+  const t1 = $("#input-title"), t2 = $("#input-solution");
   const p1 = $("#input-preview"), p2 = $("#input-solution-preview");
   if (t1) t1.style.display = show;
   if (t2) t2.style.display = show;
-  if (t3) t3.style.display = show;
   if (p1) p1.style.display = texView === "render" ? "" : "none";
   if (p2) p2.style.display = texView === "render" ? "" : "none";
   const btn = $("#tex-toggle-btn");
@@ -857,7 +872,7 @@ function collectForm(titleTex, solutionTex, wrongAnswer) {
     chapter: $("#input-chapter").value,
     kps,
     tags: Array.from(inputTags),
-    titleTex,
+    titleTex: formatOptions(titleTex),
     solutionTex: solutionTex !== undefined ? solutionTex : $("#input-solution").value.trim(),
     wrongAnswer: wrongAnswer !== undefined ? wrongAnswer : $("#input-wrong").value.trim()
   });
@@ -902,12 +917,14 @@ function saveAllQuestions() {
   });
   if (!n) { toast("没有待保存的题目（需识别完成且已填题面）", "error"); return; }
   persistLocal();
-  toast(`已批量录入 ${n} 道题；疑似重复不弹窗，题库列表角标提示`, "success");
   inputQueue = [];
   inputImgs = [];
   inputPairs = [];
   renderInput();
-  go("questions");
+  setTimeout(() => {
+    if (serverDown) toast(`⚠️ 保存失败：${n} 道题未写入数据库，请检查本地服务`, "error");
+    else toast(`✅ 已批量录入 ${n} 道题（题库在左侧导航，疑似重复以角标提示）`, "success");
+  }, 800);
 }
 
 function commitQuestion(id, q) {
@@ -918,26 +935,27 @@ function commitQuestion(id, q) {
   }
   window.__pending = null;
   persistLocal();
-  toast("已保存，临时图片已清理");
   if (inputQueue.length > 1) {
     const cur = inputQueue[inputCursor];
     if (cur) cur.status = "saved";
     inputCursor++;
     if (inputCursor < inputQueue.length) {
       renderInputReview();
-      toast(`继续校对第 ${inputCursor + 1} / ${inputQueue.length} 题`);
+      toast(`已保存第 ${inputCursor} 题，继续校对第 ${inputCursor + 1} / ${inputQueue.length} 题`, "success");
     } else {
-      toast("本批已全部保存", "success");
+      toast("本批已全部保存（可在左侧导航查看题库）", "success");
       inputQueue = [];
       inputImgs = [];
       inputPairs = [];
       renderInput();
-      go("questions");
     }
     return;
   }
   resetInput();
-  go("questions");
+  toast("✅ 已保存，可继续录入；题库在左侧导航", "success");
+  setTimeout(() => {
+    if (serverDown) toast("⚠️ 保存到数据库失败：本地服务未连接，请检查服务", "error");
+  }, 800);
 }
 
 /* ---------------- 题库 ---------------- */
@@ -1995,6 +2013,18 @@ function exportJSON() {
 }
 
 /* ---------------- 导入导出（真实实现） ---------------- */
+/* 导入的题目对象字段规范化（补默认字段，防止缺 marks 等导致渲染崩溃） */
+function normalizeQ(o) {
+  return {
+    id: o.id, type: o.type || "problem", subject: o.subject || "subj-math",
+    subSubject: o.subSubject || "ss-gaoshu", chapter: o.chapter || "",
+    kps: o.kps || [], tags: o.tags || [], note: o.note || "", marks: o.marks || {},
+    wrongAnswer: o.wrongAnswer || "", titleTex: o.titleTex || "", solutionTex: o.solutionTex || "",
+    createdAt: o.createdAt || Date.now(), urgent: !!o.urgent,
+    calcWeak: !!o.calcWeak, needConsolidate: !!o.needConsolidate
+  };
+}
+
 function handleImportFile(files) {
   const f = files && files[0];
   if (!f) return;
@@ -2077,12 +2107,12 @@ function doMergeImport() {
   data.questions.forEach(q => {
     const hit = questions.find(x => x.subject === q.subject && x.type === q.type && norm(x.titleTex) === norm(q.titleTex));
     if (hit) {
-      Object.assign(hit, q, { id: hit.id, createdAt: hit.createdAt });
+      Object.assign(hit, normalizeQ(q), { id: hit.id, createdAt: hit.createdAt });
       idMap[q.id] = hit.id;
     } else {
       const newId = nextQid();
       idMap[q.id] = newId;
-      questions.push({ ...q, id: newId });
+      questions.push(normalizeQ({ ...q, id: newId }));
     }
   });
   const seen = new Set(reviewLogs.map(l => l.qid + "|" + l.at + "|" + l.result));
@@ -2117,7 +2147,7 @@ function doOverwrite() {
     TREE.length = 0;
     data.tree.forEach(s => TREE.push(s));
   }
-  data.questions.forEach(q => questions.push({ ...q }));
+  data.questions.forEach(q => questions.push(normalizeQ(q)));
   (data.reviewLogs || []).forEach(l => reviewLogs.push({ id: ++reviewSeq, qid: l.qid, at: l.at, result: l.result }));
   qidSeq = Math.max(100, ...questions.map(q => q.id || 0));
   window.__importData = null;

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 考研错题本 v1.8.1 -->
+  <!-- 考研错题本 v1.9.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>考研错题本</title>
@@ -343,7 +343,7 @@
                   <div id="input-preview" class="tex-preview">渲染预览</div>
                   <div class="field"><label>解题过程</label><textarea class="textarea" id="input-solution" rows="3" style="display:none;"></textarea></div>
                   <div id="input-solution-preview" class="tex-preview">渲染预览</div>
-                  <div class="field"><label>我的错解 / 备注（可选）</label><textarea class="textarea" id="input-wrong" rows="2" style="display:none;"></textarea></div>
+                  <div class="field"><label>我的错解 / 备注（可选）</label><textarea class="textarea" id="input-wrong" rows="2" placeholder="写点自己的说明：错在哪、要注意什么…"></textarea></div>
                 </div>
               </div>
             </div>
@@ -391,8 +391,9 @@
               </div>
             </div>
             <div class="field">
-              <label>知识点（多选，可留空 = 未分类）</label>
+              <label>知识点分类（多选，可留空）</label>
               <div class="flex" id="input-kps" style="flex-wrap:wrap;"></div>
+              <div class="hint">「∅ 未分类」= 暂不归类，保存后可在题库勾选多题「批量归类」；分类体系在 设置 → 知识点管理 维护（科目 → 子科目 → 章节 → 知识点）。</div>
             </div>
             <div class="field">
               <label>错因标签（第一个设为主因）</label>
@@ -501,7 +502,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.8.1</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.9.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
