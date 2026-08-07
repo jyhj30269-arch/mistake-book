@@ -67,6 +67,10 @@ try {
   await call("Runtime.enable");
   await call("Page.navigate", { url: URL });
   await sleep(2600);
+  // 登录（演示账号）
+  await evalJS(`fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:"admin",password:"admin123"})}).then(r=>r.json()); true`);
+  await call("Page.reload", { ignoreCache: true });
+  await sleep(2200);
 
   // 1) 导航精简
   const nav = await evalJS(`(() => ({

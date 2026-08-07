@@ -87,6 +87,9 @@ try {
   await client.call("Runtime.enable");
   await client.call("Page.navigate", { url: URL });
   await sleep(2500);
+  await client.eval(`fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:"admin",password:"admin123"})}).then(r=>r.json()); true`);
+  await client.call("Page.reload", { ignoreCache: true });
+  await sleep(2200);
 
   // 1) 进入统一录入页，初始为单题/批量合一界面
   check("统一录入页可见", await client.eval(`!!document.querySelector("#view-input") && getComputedStyle(document.querySelector("#view-input")).display !== "none"`));

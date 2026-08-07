@@ -1,7 +1,9 @@
 /* ============================================================
-   考研错题本 · 业务逻辑 v1.7.2
-   版本：v1.7.2（自动配对识别过程 / 默认渲染视图 / 原图区左右并排缩小）
+   考研错题本 · 业务逻辑 v1.8.0
+   版本：v1.8.0（真实登录：cookie 会话 + 密码入库 / 修复推荐抽题 / 抽题算法验证）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
+   Cookie 登录（SQLite users/sessions，scrypt 加盐哈希，注册/登录/登出）/
+   今日推荐直接用推荐列表 / 章节选择保留 / 抽题算法覆盖性验证 /
    题目+过程自动配对（不点配对也识别）/ 默认只显示渲染公式（源码折叠可编辑）/
    原图对照左右并排缩小 / 公式渲染预览（LaTeX 预处理）/
    该题无过程选项 / MinerU 真实识别（服务端 mineru-open-api）/
@@ -94,7 +96,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.7.2";
+const APP_VERSION = "1.8.0";
 
 const TREE = [
   {
@@ -292,16 +294,41 @@ function goDashSection(sec) {
   }, 100);
 }
 
-function doLogin() {
+let loginMode = "login";
+function toggleLoginMode() {
+  loginMode = loginMode === "login" ? "register" : "login";
+  const btn = $("#login-btn"), tg = $("#login-toggle");
+  if (btn) btn.textContent = loginMode === "login" ? "登录并进入工作台" : "注册并进入工作台";
+  if (tg) tg.textContent = loginMode === "login" ? "没有账号？注册一个" : "已有账号？去登录";
+  const pw = $("#login-pass");
+  if (pw) pw.autocomplete = loginMode === "login" ? "current-password" : "new-password";
+}
+async function doLogin() {
+  const u = $("#login-user").value.trim();
+  const p = $("#login-pass").value;
+  if (!u || !p) { toast("请输入用户名和密码", "error"); return; }
+  try {
+    if (loginMode === "register") await API.authRegister(u, p);
+    else await API.authLogin(u, p);
+    window.__currentUser = u;
+    enterApp();
+    toast(`欢迎，${u}`, "success");
+  } catch (e) {
+    toast(e.message || "登录失败", "error");
+  }
+}
+function enterApp() {
   $("#view-login").style.display = "none";
   $("#view-app").style.display = "block";
   go("dashboard");
   setTimeout(remindCheckToday, 1200);
 }
-function doLogout() {
+async function doLogout() {
+  try { await API.authLogout(); } catch (e) { /* 忽略 */ }
   $("#view-app").style.display = "none";
   $("#mobile-tabbar").style.display = "none";
   $("#view-login").style.display = "grid";
+  window.__currentUser = null;
 }
 function goSearch() {
   const kw = $("#global-search").value.trim();
@@ -1370,9 +1397,12 @@ function renderRecPanel() {
 
 function fillRevChapter() {
   const ss = TREE.flatMap(s => s.children).find(c => c.id === $("#rev-subject").value);
+  const prev = reviewCfg.chapter;
   $("#rev-chapter").innerHTML = `<option value="">全部章节</option>` +
     (ss ? ss.children.map(ch => `<option value="${ch.id}">${esc(ch.name)}</option>`).join("") : "");
   reviewCfg.chapter = "";
+  if (ss && ss.children.some(ch => ch.id === prev)) reviewCfg.chapter = prev;
+  $("#rev-chapter").value = reviewCfg.chapter;
 }
 
 function startReview() {
@@ -1380,6 +1410,20 @@ function startReview() {
 }
 
 function startReviewWith(n, presetList) {
+  // 今日推荐：直接用推荐列表复习（不再随机抽取）
+  if (presetList && Array.isArray(presetList) && presetList.length) {
+    reviewQueue = presetList.slice(0, n);
+    reviewIdx = 0;
+    reviewResults = [];
+    reviewDone = new Set();
+    reviewSkipped = new Set();
+    reviewStartedAt = Date.now();
+    $("#review-config").style.display = "none";
+    $("#review-done").style.display = "none";
+    $("#review-play").style.display = "";
+    showReviewCard();
+    return;
+  }
   // 候选筛选
   let pool = questions.filter(q => {
     if (q.subject !== "subj-math" && q.subject !== "subj-eng" && q.subject !== "subj-408") return false;
@@ -2177,6 +2221,15 @@ function doResetDemo() {
   const ok = await loadLocal();
   if (!ok) { seed(); persistLocal(); }
   applyTexView();
+  // 登录态检查（cookie 会话）
+  const user = await API.authMe().catch(() => null);
+  if (user) {
+    window.__currentUser = user;
+    enterApp();
+  } else {
+    $("#view-app").style.display = "none";
+    $("#view-login").style.display = "grid";
+  }
   setInterval(studyTick, 1000);
   $$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => { if (a.dataset.view) go(a.dataset.view); }));
   document.addEventListener("click", e => {
@@ -2185,6 +2238,7 @@ function doResetDemo() {
   });
   window.go = go;
   window.goDashSection = goDashSection;
+  window.toggleLoginMode = toggleLoginMode;
 window.doLogin = doLogin;
 window.doLogout = doLogout;
 window.goSearch = goSearch;
@@ -2270,9 +2324,8 @@ window.testOcrConnection = testOcrConnection;
 window.closeModal = closeModal;
 window.showReviewDone = showReviewDone;
 
-/* 截图辅助：?auto=1 自动登录（原型演示用） */
+/* 截图辅助：?auto=1 直接进入指定视图（需已登录） */
 if (location.search.includes("auto=1")) {
-  if ($("#view-app").style.display === "none") doLogin();
   const v = new URLSearchParams(location.search).get("view");
   if (v && $("#view-" + v)) go(v);
 }

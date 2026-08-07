@@ -67,6 +67,12 @@ try {
   await call("Runtime.enable");
   await call("Page.navigate", { url: URL });
   await sleep(2600);
+  // 登录页（未登录状态）
+  const loginShot = await call("Page.captureScreenshot");
+  writeFileSync(OUT + which + "-login.png", Buffer.from(loginShot.data, "base64"));
+  await evalJS(`fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:"admin",password:"admin123"})}).then(r=>r.json()); true`);
+  await call("Page.reload", { ignoreCache: true });
+  await sleep(2200);
 
   // 控制台错误
   const errors = [];

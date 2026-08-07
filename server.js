@@ -7,6 +7,7 @@ const http = require("node:http");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
+const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
 const { DatabaseSync } = require("node:sqlite");
 const { TREE, QUESTIONS, REVIEW_LOGS } = require("./seed-data.js");
@@ -35,7 +36,46 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
   CREATE TABLE IF NOT EXISTS study_days(day TEXT PRIMARY KEY, seconds INTEGER DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS users(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    created_at INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS sessions(
+    token TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    expires_at INTEGER
+  );
 `);
+
+/* ---------- 账号与会话（cookie 登录） ---------- */
+function hashPassword(pw) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(pw, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+function verifyPassword(pw, stored) {
+  const [salt, hash] = String(stored || "").split(":");
+  if (!salt || !hash) return false;
+  try {
+    const calc = crypto.scryptSync(pw, salt, 64);
+    return crypto.timingSafeEqual(Buffer.from(hash, "hex"), calc);
+  } catch (e) { return false; }
+}
+function createSession(username) {
+  const token = crypto.randomBytes(24).toString("hex");
+  const expires = Date.now() + 7 * 86400000;
+  db.prepare("INSERT INTO sessions(token, username, expires_at) VALUES (?,?,?)").run(token, username, expires);
+  return { token, expires };
+}
+function getUserByCookie(req) {
+  const m = String(req.headers.cookie || "").match(/mb_session=([^;]+)/);
+  if (!m) return null;
+  const row = db.prepare("SELECT username, expires_at FROM sessions WHERE token = ?").get(m[1]);
+  if (!row || row.expires_at < Date.now()) return null;
+  return row.username;
+}
 
 /* ---------- 种子初始化（仅当 questions 表为空） ---------- */
 function seedIfEmpty() {
@@ -67,9 +107,9 @@ function seedIfEmpty() {
     };
     walk(TREE, null, "subject");
     ord += 1000;
-    db.prepare("INSERT INTO settings(key, value) VALUES (?,?)").run("remindOn", "true");
-    db.prepare("INSERT INTO settings(key, value) VALUES (?,?)").run("reviewCfg", JSON.stringify({ sub: "all", chapter: "", lv: "all", num: 3 }));
-    db.exec("COMMIT");
+  db.prepare("INSERT INTO settings(key, value) VALUES (?,?)").run("remindOn", "true");
+  db.prepare("INSERT INTO settings(key, value) VALUES (?,?)").run("reviewCfg", JSON.stringify({ sub: "all", chapter: "", lv: "all", num: 3 }));
+  db.exec("COMMIT");
     console.log("SQLite 首次初始化：已写入种子数据（15 题 / 28 条复习记录 / 知识点树）");
   } catch (e) {
     db.exec("ROLLBACK");
@@ -77,6 +117,17 @@ function seedIfEmpty() {
   }
 }
 seedIfEmpty();
+
+/* 演示账号：users 表为空时创建（与题库种子独立，已有数据库也会补建） */
+function seedUsersIfEmpty() {
+  const n = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
+  if (n === 0) {
+    db.prepare("INSERT INTO users(username, password_hash, created_at) VALUES (?,?,?)")
+      .run("admin", hashPassword("admin123"), Date.now());
+    console.log("已创建演示账号：admin / admin123（可在登录页注册新账号）");
+  }
+}
+seedUsersIfEmpty();
 
 /* ---------- 数据组装 ---------- */
 function flattenTree() {
@@ -262,6 +313,48 @@ const server = http.createServer(async (req, res) => {
   // API
   if (p.startsWith("/api/")) {
     if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,Authorization" }); res.end(); return; }
+    // 账号与会话
+    if (p === "/api/auth/register" && req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const name = String(body.username || "").trim();
+        const pw = String(body.password || "");
+        if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(name)) return sendJson(res, 400, { code: 40001, message: "用户名需 3-20 位（字母/数字/中文/下划线）" });
+        if (pw.length < 6 || pw.length > 64) return sendJson(res, 400, { code: 40002, message: "密码需 6-64 位" });
+        const exists = db.prepare("SELECT id FROM users WHERE username = ?").get(name);
+        if (exists) return sendJson(res, 409, { code: 40901, message: "用户名已存在" });
+        db.prepare("INSERT INTO users(username, password_hash, created_at) VALUES (?,?,?)").run(name, hashPassword(pw), Date.now());
+        const { token, expires } = createSession(name);
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Set-Cookie": `mb_session=${token}; Path=/; HttpOnly; Max-Age=${Math.floor(expires / 1000)}; SameSite=Lax` });
+        res.end(JSON.stringify({ ok: true, user: name }));
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (p === "/api/auth/login" && req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const name = String(body.username || "").trim();
+        const row = db.prepare("SELECT password_hash FROM users WHERE username = ?").get(name);
+        if (!row || !verifyPassword(String(body.password || ""), row.password_hash)) return sendJson(res, 401, { code: 40101, message: "用户名或密码错误" });
+        const { token, expires } = createSession(name);
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Set-Cookie": `mb_session=${token}; Path=/; HttpOnly; Max-Age=${Math.floor(expires / 1000)}; SameSite=Lax` });
+        res.end(JSON.stringify({ ok: true, user: name }));
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (p === "/api/auth/logout" && req.method === "POST") {
+      const m = String(req.headers.cookie || "").match(/mb_session=([^;]+)/);
+      if (m) db.prepare("DELETE FROM sessions WHERE token = ?").run(m[1]);
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Set-Cookie": "mb_session=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax" });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (p === "/api/auth/me" && req.method === "GET") {
+      const user = getUserByCookie(req);
+      if (!user) return sendJson(res, 401, { code: 40100, message: "未登录" });
+      sendJson(res, 200, { user });
+      return;
+    }
     if (p === "/api/db" && req.method === "GET") { sendJson(res, 200, getDb()); return; }
     if (p === "/api/db" && req.method === "POST") {
       try {

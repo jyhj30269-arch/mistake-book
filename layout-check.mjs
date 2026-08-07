@@ -70,6 +70,9 @@ try {
   await call("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await call("Page.navigate", { url: URL });
   await sleep(2500);
+  const loginOk = await evalJS(`fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:"admin",password:"admin123"})}).then(r=>r.ok); true`);
+  await call("Page.reload", { ignoreCache: true });
+  await sleep(2200);
   const desktop = await evalJS(`(() => {
     const sec = document.querySelector("#view-dashboard");
     const nav = document.querySelector(".side-nav");

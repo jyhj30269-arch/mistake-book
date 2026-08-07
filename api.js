@@ -60,6 +60,37 @@
       : "http://127.0.0.1:8788/api",
     version: 1,
 
+    /* ================= 账号（cookie 登录，密码存 SQLite） ================= */
+    async authLogin(username, password) {
+      const res = await fetch(`${this.base}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((j && j.message) || `登录失败 ${res.status}`);
+      return j;
+    },
+    async authRegister(username, password) {
+      const res = await fetch(`${this.base}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((j && j.message) || `注册失败 ${res.status}`);
+      return j;
+    },
+    async authLogout() {
+      await fetch(`${this.base}/auth/logout`, { method: "POST" });
+    },
+    async authMe() {
+      const res = await fetch(`${this.base}/auth/me`);
+      if (!res.ok) return null;
+      const j = await res.json();
+      return j.user;
+    },
+
     /* ================= 数据层（本地实现） ================= */
 
     /** 读取整库（本地模式；远端模式应改为 GET /api/db 或逐表拉取） */

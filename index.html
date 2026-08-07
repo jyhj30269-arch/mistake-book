@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 考研错题本 v1.7.2 -->
+  <!-- 考研错题本 v1.8.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>考研错题本</title>
@@ -19,7 +19,7 @@
         <div class="flow">
           <div><span class="dot"></span>单题 / 批量识别合为一个入口</div>
           <div><span class="dot"></span>数据存本地 SQLite（mistake-book.db）</div>
-          <div><span class="dot"></span>前端 API 接口已预留，后端按契约接入</div>
+          <div><span class="dot"></span>账号密码加密存本地数据库 · Cookie 登录</div>
         </div>
       </div>
       <div class="login-form">
@@ -32,15 +32,18 @@
             </div>
           </div>
           <div class="field">
-            <label>账号</label>
-            <input class="input" id="login-user" value="test" />
+            <label>用户名</label>
+            <input class="input" id="login-user" placeholder="3-20 位（字母/数字/中文）" autocomplete="username" />
           </div>
           <div class="field">
             <label>密码</label>
-            <input class="input" id="login-pass" type="password" value="test" />
+            <input class="input" id="login-pass" type="password" placeholder="至少 6 位" autocomplete="current-password" />
           </div>
-          <button class="btn btn-primary btn-lg btn-block" onclick="doLogin()">进入工作台</button>
-          <div class="small muted mt-16">原型阶段跳过鉴权，直接进入；地址栏加 ?auto=1 可自动登录。</div>
+          <button class="btn btn-primary btn-lg btn-block" id="login-btn" onclick="doLogin()">登录并进入工作台</button>
+          <div class="flex-between mt-16">
+            <span class="small muted" id="login-toggle" style="cursor:pointer;color:var(--primary);" onclick="toggleLoginMode()">没有账号？注册一个</span>
+            <span class="small muted">演示账号：admin / admin123</span>
+          </div>
         </div>
       </div>
     </div>
@@ -498,7 +501,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.7.2</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.8.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
