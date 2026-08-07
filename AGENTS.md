@@ -2,7 +2,7 @@
 
 ## 版本管理（强制）
 
-- 当前版本：v1.6.0（见 `VERSION` 文件）。
+- 当前版本：v1.7.0（见 `VERSION` 文件）。
 - 每次修改代码 / 功能 / 文档并交付时，必须升级版本号，规则：
   - 大版本（1.x → 2.x）：录入 / 复习等核心流程重构，或部署方式变化（如云端上线）。
   - 次版本（x.1 → x.2）：新增功能模块、新页面、新接口。
@@ -19,5 +19,6 @@
 - 前端数据访问统一走 `window.API`（`api.js`），业务代码不直接读写 localStorage / fetch。
 - 数据层：本地 SQLite（`server.js` + `node:sqlite`，数据库 `mistake-book.db`），前端通过 `api.js`（remote 模式）读写；启动方式 `node server.js` 或双击 `start.bat`，访问 http://127.0.0.1:8788。
 - 页面不内置测试数据：种子数据在 `seed-data.js`，仅当 SQLite 为空时写入一次。
+- OCR：真实识别由 `server.js` 调用本机 `mineru-open-api`（token 在 `~/.mineru/config.yaml`）；回归测试用 `MINERU_DISABLE=1` 走模拟加速。
 - 合并入口：单题 / 批量识别合为「识别录入」一个入口，1 张图 = 单题，多张图 = 批量。
 - 修改后先跑 `node smoke-test.mjs` 与 `node layout-check.mjs` 再交付。

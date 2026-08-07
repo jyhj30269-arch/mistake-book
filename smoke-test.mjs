@@ -22,7 +22,7 @@ const testDir = mkdtempSync(join(tmpdir(), "mb-smoke-"));
 const dbFile = join(testDir, "test.db");
 const server = spawn("node", ["server.js"], {
   cwd: "C:/Users/32949/Desktop/assets",
-  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile },
+  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile, MINERU_DISABLE: "1" },
   stdio: "ignore"
 });
 await sleep(1200);
@@ -99,11 +99,11 @@ try {
       const bin = atob(b64); const arr = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
       const f = new File([arr], "q1.png", { type: "image/png" });
-      handleFiles([f]);
+      handleFiles([f], "q");
     })()
   `);
   await sleep(400);
-  check("单题：图片卡片出现", await client.eval(`document.querySelectorAll("#input-imgs .bimg-card").length === 1`));
+  check("单题：图片卡片出现", await client.eval(`document.querySelectorAll("#input-q-imgs .bimg-card").length === 1`));
   check("单题模式标签", await client.eval(`document.querySelector("#input-mode-tag").textContent.includes("单题")`));
 
   // 3) 开始识别 → 等待模拟 OCR → 题面已填入
@@ -126,14 +126,13 @@ try {
       const bin = atob(b64); const arr = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
       const mk = (n) => new File([arr], n, { type: "image/png" });
-      handleFiles([mk("q2.png"), mk("q3.png"), mk("s1.png")]);
+      handleFiles([mk("q2.png"), mk("q3.png")], "q");
+      handleFiles([mk("s1.png")], "s");
     })()
   `);
   await sleep(400);
-  check("批量：3 张图片卡片", await client.eval(`document.querySelectorAll("#input-imgs .bimg-card").length === 3`));
+  check("批量：题目 2 张 + 过程 1 张", await client.eval(`document.querySelectorAll("#input-q-imgs .bimg-card").length === 2 && document.querySelectorAll("#input-s-imgs .bimg-card").length === 1`));
   check("批量模式标签", await client.eval(`document.querySelector("#input-mode-tag").textContent.includes("批量")`));
-  // 第 3 张切成解题图，再自动配对
-  await client.eval(`toggleImgKind(inputImgs[2].id)`);
   await client.eval(`autoPairInput()`);
   check("批量：自动配对 1 组", await client.eval(`inputPairs.length === 1`));
 

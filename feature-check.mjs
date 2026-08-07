@@ -14,7 +14,7 @@ const testDir = mkdtempSync(join(tmpdir(), "mb-feature-"));
 const dbFile = join(testDir, "test.db");
 const server = spawn("node", ["server.js"], {
   cwd: "C:/Users/32949/Desktop/assets",
-  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile },
+  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile, MINERU_DISABLE: "1" },
   stdio: "ignore"
 });
 await sleep(1200);
@@ -139,13 +139,35 @@ try {
       const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
       const bin = atob(b64); const arr = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-      handleFiles([new File([arr], "q.png", { type: "image/png" })]);
+      handleFiles([new File([arr], "q.png", { type: "image/png" })], "q");
     })()
   `);
   await sleep(400);
   await evalJS(`switchManualInput(); true`);
   const manual = await evalJS(`document.getElementById("input-ocr-state").textContent.includes("手动输入") && document.getElementById("input-title") === document.activeElement`);
   check("转手动输入生效且聚焦题面", manual);
+
+  // 6.5) 该题无过程：标记后只识别题面
+  await evalJS(`go("input"); resetInput(); true`);
+  await evalJS(`
+    (async () => {
+      const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+      const bin = atob(b64); const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      handleFiles([new File([arr], "nosol.png", { type: "image/png" })], "q");
+    })()
+  `);
+  await sleep(400);
+  const noSolToggle = await evalJS(`document.querySelector("#input-q-imgs .bimg-kind").textContent.includes("题目")`);
+  await evalJS(`toggleNoSolution(inputImgs.find(x => x.kind === "q").id); true`);
+  await sleep(300);
+  const noSolMarked = await evalJS(`document.querySelector("#input-q-imgs .bimg-card").classList.contains("no-sol") && inputImgs.some(x => x.noSolution)`);
+  await evalJS(`startInputOCR(); true`);
+  await sleep(2600);
+  const noSolQueue = await evalJS(`inputQueue.length === 1 && inputQueue[0].noSolution === true && inputQueue[0].sImgId === null`);
+  const noSolDiag = await evalJS(`JSON.stringify({ marked: inputImgs.filter(x=>x.kind==="q").map(x=>({id:x.id,noSolution:x.noSolution})), queue: inputQueue.map(x=>({qImgId:x.qImgId, sImgId:x.sImgId, noSolution:x.noSolution, status:x.status})) })`);
+  console.log("无过程诊断: " + noSolDiag);
+  check("该题无过程：标记生效且队列无过程项", noSolToggle && noSolMarked && noSolQueue);
 
   // 7) 复习：自由选题 / 跳过
   await evalJS(`go("dashboard"); true`);
@@ -181,7 +203,7 @@ try {
     addKp: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.includes("＋加知识点")),
     hasRename: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.trim() === "改"),
     hasKpDel: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.dataset.ch && b.textContent.trim() === "删"),
-    ocrCard: !!document.getElementById("ocr-engine") && !!document.getElementById("ocr-token") && !!document.getElementById("ocr-base"),
+    ocrCard: !!document.getElementById("ocr-engine"),
     ocrTag: document.getElementById("ocr-mode-tag").textContent
   }))()`);
   console.log("设置页按钮详情: " + JSON.stringify(settings2));

@@ -6,12 +6,16 @@
 const http = require("node:http");
 const path = require("node:path");
 const fs = require("node:fs");
+const os = require("node:os");
+const { execFile } = require("node:child_process");
 const { DatabaseSync } = require("node:sqlite");
 const { TREE, QUESTIONS, REVIEW_LOGS } = require("./seed-data.js");
 
 const ROOT = __dirname;
 const PORT = process.env.PORT || 8788;
 const DB_FILE = process.env.DB_FILE || path.join(ROOT, "mistake-book.db");
+const MINERU_CLI = path.join(process.env.APPDATA || "", "npm", "mineru-open-api.cmd");
+const MINERU_AVAILABLE = fs.existsSync(MINERU_CLI) && process.env.MINERU_DISABLE !== "1";
 
 const db = new DatabaseSync(DB_FILE);
 db.exec(`
@@ -220,6 +224,35 @@ function readBody(req) {
   });
 }
 
+/* ---------- MinerU 真实识别（官方 CLI：extract 优先，flash-extract 回退） ---------- */
+function mineruRecognize(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const buf = Buffer.from(String(dataUrl || "").split(",")[1] || "", "base64");
+    if (!buf.length) return reject(new Error("图片数据为空"));
+    const tmp = path.join(os.tmpdir(), `mb-ocr-${Date.now()}-${Math.floor(Math.random() * 1e6)}.png`);
+    fs.writeFileSync(tmp, buf);
+    const run = (args, done) => {
+      execFile("cmd.exe", ["/c", MINERU_CLI, ...args], {
+        timeout: 240000, maxBuffer: 20 * 1024 * 1024, windowsHide: true
+      }, done);
+    };
+    const cleanup = () => fs.unlink(tmp, () => {});
+    run(["extract", tmp, "-f", "md", "--model", "pipeline", "--ocr", "--formula"], (err, stdout, stderr) => {
+      if (err) {
+        // extract 失败（token/限流/超限等）→ 回退免 token 的 flash-extract
+        run(["flash-extract", tmp], (err2, out2, err2s) => {
+          cleanup();
+          if (err2) reject(new Error("MinerU 识别失败：" + String(stderr || err2s || err2.message).slice(0, 300)));
+          else resolve({ text: (out2 || "").trim(), source: "mineru-flash" });
+        });
+        return;
+      }
+      cleanup();
+      resolve({ text: (stdout || "").trim(), source: "mineru" });
+    });
+  });
+}
+
 /* ---------- HTTP 路由 ---------- */
 let writeQueue = Promise.resolve();
 const server = http.createServer(async (req, res) => {
@@ -300,15 +333,28 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/ocr/recognize" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        await new Promise(r => setTimeout(r, 900 + Math.random() * 900));
+        const t0 = Date.now();
         const isSolution = !!body.isSolution;
-        sendJson(res, 200, {
-          taskId: "mock-" + Date.now(),
-          titleTex: isSolution ? "" : "\\lim_{x \\to 0} \\frac{1 - \\cos x}{x \\sin x}",
-          solutionTex: isSolution ? "1 - \\cos x \\sim \\frac{x^2}{2}，x \\sin x \\sim x^2，故极限 = \\frac{1}{2}" : "",
-          lowConf: isSolution ? [] : [{ from: 18, to: 22 }],
-          source: "mock-server"
-        });
+        if (MINERU_AVAILABLE) {
+          const r = await mineruRecognize(body.dataUrl);
+          sendJson(res, 200, {
+            taskId: "mineru-" + Date.now(),
+            titleTex: isSolution ? "" : r.text,
+            solutionTex: isSolution ? r.text : "",
+            lowConf: [],
+            source: r.source,
+            costSec: Math.round((Date.now() - t0) / 1000)
+          });
+        } else {
+          await new Promise(r => setTimeout(r, 900 + Math.random() * 900));
+          sendJson(res, 200, {
+            taskId: "mock-" + Date.now(),
+            titleTex: isSolution ? "" : "\\lim_{x \\to 0} \\frac{1 - \\cos x}{x \\sin x}",
+            solutionTex: isSolution ? "1 - \\cos x \\sim \\frac{x^2}{2}，x \\sin x \\sim x^2，故极限 = \\frac{1}{2}" : "",
+            lowConf: [],
+            source: "mock-server"
+          });
+        }
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
     }
@@ -335,5 +381,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`考研错题本本地服务已启动：http://127.0.0.1:${PORT}`);
   console.log(`数据库：${DB_FILE}（SQLite）`);
+  console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);
   console.log("按 Ctrl+C 停止服务");
 });

@@ -100,9 +100,9 @@
      *   远端（Phase C）返回 { taskId }，再用 ocrStatus 轮询结果。
      */
     async ocrRecognize(image, opts = {}) {
-      // 本地真实识别：配置了 MinerU 则走真实 API，否则用模拟
       const cfg = this.mineruConfig();
-      if (cfg.engine === "mineru" && cfg.token) {
+      // local 模式：前端直连 MinerU；remote 模式：由本地服务（server.js）统一走真实 MinerU CLI
+      if (this.mode === "local" && cfg.engine === "mineru" && cfg.token) {
         return this.ocrRecognizeMineru(image, opts);
       }
       if (this.mode === "remote") {

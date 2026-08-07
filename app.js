@@ -1,7 +1,8 @@
 /* ============================================================
-   考研错题本 · 业务逻辑 v1.6.0
-   版本：v1.6.0（数据层切换：本地 SQLite 服务，页面不再内置测试数据）
+   考研错题本 · 业务逻辑 v1.7.0
+   版本：v1.7.0（录入页拆分题目/过程双上传区 + 每题无过程选项 + MinerU 真实识别）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
+   录入页双上传区（题目/过程各自多张）/ 该题无过程选项 / MinerU 真实识别（服务端 mineru-open-api）/
    本地 SQLite（server.js + node:sqlite，mistake-book.db，种子数据在服务端）/
    复习自由选题（题目导航/跳过/任意切换）/
    设置简化（新增科目/统一弹窗/加分支示例）/ MinerU 真实识别（可配置+连通性测试）/
@@ -91,7 +92,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.7.0";
 
 const TREE = [
   {
@@ -457,25 +458,24 @@ let inputSeq = 0;
 let inputImgs = [];        // { id, kind: "q"|"s", name, dataUrl }
 let inputPairs = [];       // [{ q, s }]
 let inputSelQ = null;      // 点选配对：当前选中的题目图 id
-let inputSkip = false;     // 跳过配对 · 逐张录入
 let inputQueue = [];       // [{ qImgId, sImgId, titleTex, solutionTex, status }]
 let inputCursor = 0;
 let texView = "render";
 
-/* ---------- 图片添加：拍照 / 相册 / 粘贴 ---------- */
-function addInputFiles() {
-  const el = $("#input-file");
+/* ---------- 图片添加：题目(q) / 过程(s) 两个区，各自支持拍照/相册/粘贴 ---------- */
+function addInputFiles(kind) {
+  const el = $("#input-file-" + kind);
   el.value = "";
-  el.onchange = () => handleFiles(el.files);
+  el.onchange = () => handleFiles(el.files, kind);
   el.click();
 }
-function addInputPhotos() {
-  const el = $("#input-cam");
+function addInputPhotos(kind) {
+  const el = $("#input-cam-" + kind);
   el.value = "";
-  el.onchange = () => handleFiles(el.files);
+  el.onchange = () => handleFiles(el.files, kind);
   el.click();
 }
-async function pasteInput() {
+async function pasteInput(kind) {
   try {
     if (navigator.clipboard && navigator.clipboard.read) {
       const items = await navigator.clipboard.read();
@@ -484,7 +484,7 @@ async function pasteInput() {
         const t = it.types.find(x => x.startsWith("image/"));
         if (t) files.push(await it.getType(t));
       }
-      if (files.length) { handleFiles(files); toast(`已粘贴 ${files.length} 张截图`, "success"); return; }
+      if (files.length) { handleFiles(files, kind); toast(`已粘贴 ${files.length} 张截图`, "success"); return; }
     }
   } catch (e) { /* 无剪贴板权限时引导用户直接 Ctrl+V */ }
   toast("请直接按 Ctrl+V 粘贴截图");
@@ -492,51 +492,57 @@ async function pasteInput() {
 document.addEventListener("paste", e => {
   if (!$("#view-input") || $("#view-input").style.display === "none") return;
   const files = e.clipboardData && e.clipboardData.files;
-  if (files && files.length) { handleFiles(files); toast(`已粘贴 ${files.length} 张截图`, "success"); }
+  if (files && files.length) { handleFiles(files, "q"); toast(`已粘贴 ${files.length} 张截图到题目区`, "success"); }
 });
 
-function handleFiles(files) {
+function handleFiles(files, kind) {
   const arr = Array.from(files || []).filter(f => f && f.type && f.type.startsWith("image/"));
   if (!arr.length) { toast("未识别到图片文件", "error"); return; }
   let pending = arr.length;
   arr.forEach(f => {
     const reader = new FileReader();
     reader.onload = () => {
-      inputImgs.push({ id: ++inputSeq, kind: "q", name: f.name || `图片 ${inputSeq}`, dataUrl: reader.result });
+      inputImgs.push({ id: ++inputSeq, kind: kind === "s" ? "s" : "q", name: f.name || `图片 ${inputSeq}`, dataUrl: reader.result, noSolution: false });
       if (--pending === 0) {
         renderInput();
-        toast(`已添加 ${arr.length} 张图片：${arr.length > 1 ? "自动进入批量模式，可点图片切换题目/解题并配对" : "单题模式，点击「开始识别」"}`, "success");
+        toast(`已添加 ${arr.length} 张${kind === "s" ? "过程" : "题目"}图片`, "success");
       }
     };
     reader.readAsDataURL(f);
   });
 }
 
-/* ---------- 图片队列：切换题目/解题、点选配对、自动配对 ---------- */
+/* ---------- 图片队列：点选配对 / 自动配对 / 该题无过程 ---------- */
 function renderInput() {
-  const grid = $("#input-imgs");
-  if (!grid) return;
-  $("#input-mode-tag").textContent = !inputImgs.length ? "待添加图片" : inputImgs.length === 1 ? "单题模式" : "批量模式";
-  $("#input-pair-actions").style.display = inputImgs.filter(x => x.kind === "q").length > 1 ? "" : "none";
-  grid.innerHTML = inputImgs.length
-    ? inputImgs.map(img => `
-      <div class="bimg-card ${inputSelQ === img.id ? "sel" : ""}" onclick="selectInputImg(${img.id})">
-        <img src="${img.dataUrl}" alt="" />
-        <span class="bimg-kind ${img.kind === "s" ? "is-s" : ""}" onclick="event.stopPropagation();toggleImgKind(${img.id})">${img.kind === "q" ? "题目" : "解题"}</span>
-        <span class="bimg-del" onclick="event.stopPropagation();removeInputImg(${img.id})">✕</span>
-      </div>`).join("")
-    : `<div class="small muted" style="padding:8px 0;">还没有图片，点上方按钮添加（可多张）</div>`;
+  const qGrid = $("#input-q-imgs");
+  if (!qGrid) return;
+  const qs = inputImgs.filter(x => x.kind === "q");
+  const ss = inputImgs.filter(x => x.kind === "s");
+  $("#input-mode-tag").textContent = !qs.length ? "待添加图片" : qs.length === 1 && !ss.length ? "单题模式" : "批量模式";
+  $("#input-pair-actions").style.display = qs.length && ss.length ? "" : "none";
+  const card = (img) => `
+    <div class="bimg-card ${inputSelQ === img.id ? "sel" : ""} ${img.noSolution ? "no-sol" : ""}" onclick="selectInputImg(${img.id})">
+      <img src="${img.dataUrl}" alt="" />
+      ${img.kind === "q"
+        ? `<span class="bimg-kind" onclick="event.stopPropagation();toggleNoSolution(${img.id})">${img.noSolution ? "🚫 无过程" : "题目"}</span>`
+        : `<span class="bimg-kind is-s">解题</span>`}
+      <span class="bimg-del" onclick="event.stopPropagation();removeInputImg(${img.id})">✕</span>
+    </div>`;
+  qGrid.innerHTML = qs.length ? qs.map(card).join("") : `<div class="small muted" style="padding:8px 0;">还没有题目图片，点上方按钮添加</div>`;
+  $("#input-s-imgs").innerHTML = ss.length ? ss.map(card).join("") : `<div class="small muted" style="padding:8px 0;">可选的解题过程图；不需要过程可留空</div>`;
   renderPairs();
   renderQueue();
 }
 
-function toggleImgKind(id) {
+/* 该题不需要解题过程：只识别题面 */
+function toggleNoSolution(id) {
   const img = inputImgs.find(x => x.id === id);
-  if (!img) return;
-  img.kind = img.kind === "q" ? "s" : "q";
+  if (!img || img.kind !== "q") return;
+  img.noSolution = !img.noSolution;
   inputPairs = inputPairs.filter(p => p.q !== id && p.s !== id);
   if (inputSelQ === id) inputSelQ = null;
   renderInput();
+  toast(img.noSolution ? "该题标记为「无过程」，只识别题面" : "已取消「无过程」标记");
 }
 function removeInputImg(id) {
   inputImgs = inputImgs.filter(x => x.id !== id);
@@ -560,7 +566,7 @@ function selectInputImg(id) {
   renderInput();
 }
 function autoPairInput() {
-  const qs = inputImgs.filter(x => x.kind === "q");
+  const qs = inputImgs.filter(x => x.kind === "q" && !x.noSolution);
   const ss = inputImgs.filter(x => x.kind === "s");
   if (!qs.length) { toast("请先添加题目图", "error"); return; }
   inputPairs = [];
@@ -568,18 +574,10 @@ function autoPairInput() {
   for (let i = 0; i < n; i++) inputPairs.push({ q: qs[i].id, s: ss[i].id });
   const msg = ss.length > qs.length
     ? `已按上传顺序配对 ${n} 题，多余 ${ss.length - n} 张解题图将忽略`
-    : qs.length > ss.length
-      ? `已按上传顺序配对 ${n} 题，${qs.length - n} 张题目图无解题过程`
-      : `已按上传顺序配对 ${n} 题`;
+    : `已按上传顺序配对 ${n} 题，${qs.length - n} 张题目图无解题过程`;
   inputSelQ = null;
   renderInput();
   toast(msg, "success");
-}
-function toggleSkipPair() {
-  inputSkip = !inputSkip;
-  $("#input-skip-btn").classList.toggle("btn-primary", inputSkip);
-  $("#batch-hint").textContent = inputSkip ? "已切换到「跳过配对 · 逐张录入」：每张题目图单独录入，解题图暂不识别" : "";
-  toast(inputSkip ? "跳过配对，逐张录入" : "已恢复配对模式");
 }
 function renderPairs() {
   const box = $("#batch-pairs");
@@ -605,18 +603,19 @@ function unpair(i) { inputPairs.splice(i, 1); renderInput(); }
 /* ---------- OCR 与逐题校对 ---------- */
 function buildQueue() {
   const qImgs = inputImgs.filter(x => x.kind === "q");
-  if (inputSkip) {
-    return qImgs.map(x => ({ qImgId: x.id, sImgId: null, titleTex: "", solutionTex: "", status: "pending" }));
-  }
-  const items = [];
-  if (inputPairs.length) {
-    const paired = new Set(inputPairs.map(p => p.q));
-    inputPairs.forEach(p => items.push({ qImgId: p.q, sImgId: p.s, titleTex: "", solutionTex: "", status: "pending" }));
-    qImgs.filter(x => !paired.has(x.id)).forEach(x => items.push({ qImgId: x.id, sImgId: null, titleTex: "", solutionTex: "", status: "pending" }));
-  } else {
-    qImgs.forEach(x => items.push({ qImgId: x.id, sImgId: null, titleTex: "", solutionTex: "", status: "pending" }));
-  }
-  return items;
+  const pairByQ = {};
+  inputPairs.forEach(p => { pairByQ[p.q] = p.s; });
+  return qImgs.map(x => {
+    const sId = pairByQ[x.id];
+    return {
+      qImgId: x.id,
+      sImgId: sId || null,
+      titleTex: "",
+      solutionTex: "",
+      status: "pending",
+      noSolution: !!x.noSolution || !sId
+    };
+  });
 }
 
 async function startInputOCR() {
@@ -704,7 +703,7 @@ function renderQueue() {
     const extra = it.status === "saved" ? "ok" : it.status === "failed" ? "bad" : "";
     return `<div class="input-queue-item ${cls} ${extra}">
       <span class="num">${i + 1}</span>
-      <span class="txt">题图 ${it.qImgId}${it.sImgId ? " ↔ 解图 " + it.sImgId : "（无解题图）"}</span>
+      <span class="txt">题图 ${it.qImgId}${it.sImgId ? " ↔ 解图 " + it.sImgId : it.noSolution ? " · 该题无过程" : " · 无解题图"}</span>
       <span class="tag">${map[it.status] || it.status}</span>
     </div>`;
   }).join("");
@@ -730,9 +729,7 @@ function switchManualInput() {
   $("#input-ocr-btn").disabled = false;
   $("#input-ocr-progress-wrap").style.display = "none";
   if (!inputQueue.length && inputImgs.length) {
-    inputQueue = inputImgs.filter(x => x.kind === "q").map(x => ({
-      qImgId: x.id, sImgId: null, titleTex: "", solutionTex: "", status: "done"
-    }));
+    inputQueue = buildQueue().map(it => ({ ...it, status: "done" }));
     inputCursor = 0;
     renderInputReview();
   }
@@ -753,9 +750,7 @@ function resetInput() {
   inputQueue = [];
   inputCursor = 0;
   inputSelQ = null;
-  inputSkip = false;
   $("#batch-hint").textContent = "";
-  $("#input-skip-btn").classList.remove("btn-primary");
   $("#input-ocr-state").textContent = "待识别";
   $("#input-ocr-progress-wrap").style.display = "none";
   $("#input-img-box").innerHTML = "暂无图片<br />添加图片后此处显示原图";
@@ -1667,26 +1662,22 @@ function renderSettings() {
 function loadOcrConfig() {
   const cfg = API.mineruConfig();
   const eng = $("#ocr-engine"); if (eng) eng.value = cfg.engine || "mock";
-  const tok = $("#ocr-token"); if (tok) tok.value = cfg.token || "";
-  const base = $("#ocr-base"); if (base) base.value = cfg.base || "https://api.mineru.net";
   const tag = $("#ocr-mode-tag");
-  if (tag) tag.textContent = cfg.engine === "mineru" && cfg.token ? "引擎：MinerU（真实）" : "引擎：模拟";
+  if (tag) tag.textContent = cfg.engine === "mineru" ? "引擎：MinerU（真实）" : "引擎：模拟";
 }
 function saveOcrConfig() {
   const cfg = {
-    engine: $("#ocr-engine").value,
-    token: $("#ocr-token").value.trim(),
-    base: $("#ocr-base").value.trim() || "https://api.mineru.net"
+    engine: $("#ocr-engine").value
   };
   localStorage.setItem("mb-mineru-config", JSON.stringify(cfg));
   const tag = $("#ocr-mode-tag");
-  if (tag) tag.textContent = cfg.engine === "mineru" && cfg.token ? "引擎：MinerU（真实）" : "引擎：模拟";
+  if (tag) tag.textContent = cfg.engine === "mineru" ? "引擎：MinerU（真实）" : "引擎：模拟";
   toast("OCR 配置已保存");
   testOcrConnection();
 }
 async function testOcrConnection() {
   const cfg = API.mineruConfig();
-  if (cfg.engine !== "mineru" || !cfg.token) { toast("当前为模拟模式，未测试真实识别", "error"); return; }
+  if (cfg.engine !== "mineru") { toast("当前为模拟模式，未测试真实识别", "error"); return; }
   toast("正在测试 MinerU 连通性…");
   try {
     const canvas = document.createElement("canvas");
@@ -1701,7 +1692,7 @@ async function testOcrConnection() {
     openModal("MinerU 连通性测试通过", `
       <div class="small" style="line-height:2;">
         耗时：<b>${cost} 秒</b><br />
-        识别来源：${r.source}<br />
+        识别来源：${r.source === "mineru" ? "MinerU（pipeline）" : r.source === "mineru-flash" ? "MinerU（flash）" : r.source}<br />
         识别文本：<span class="mono">${esc((r.titleTex || "").slice(0, 80))}</span>
       </div>`,
       `<button class="btn btn-primary" onclick="closeModal()">知道了</button>`
@@ -2152,11 +2143,10 @@ window.addInputFiles = addInputFiles;
 window.addInputPhotos = addInputPhotos;
 window.pasteInput = pasteInput;
 window.handleFiles = handleFiles;
-window.toggleImgKind = toggleImgKind;
+window.toggleNoSolution = toggleNoSolution;
 window.removeInputImg = removeInputImg;
 window.selectInputImg = selectInputImg;
 window.autoPairInput = autoPairInput;
-window.toggleSkipPair = toggleSkipPair;
 window.unpair = unpair;
 window.startInputOCR = startInputOCR;
 window.renderInput = renderInput;

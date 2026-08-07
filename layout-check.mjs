@@ -14,7 +14,7 @@ const testDir = mkdtempSync(join(tmpdir(), "mb-layout-"));
 const dbFile = join(testDir, "test.db");
 const server = spawn("node", ["server.js"], {
   cwd: "C:/Users/32949/Desktop/assets",
-  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile },
+  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile, MINERU_DISABLE: "1" },
   stdio: "ignore"
 });
 await sleep(1200);

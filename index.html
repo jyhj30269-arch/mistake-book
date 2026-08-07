@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 考研错题本 v1.6.0 -->
+  <!-- 考研错题本 v1.7.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>考研错题本</title>
@@ -256,23 +256,40 @@
           <!-- ① 添加图片 -->
           <div class="card">
             <div class="card-head">
-              <div class="card-title">① 添加题目图片</div>
-              <span class="tag">拍照 / 相册 / 粘贴截图</span>
+              <div class="card-title">① 添加图片（题目 + 过程）</div>
+              <span class="tag">题目必传 · 过程可选 · 支持多张</span>
             </div>
-            <div class="flex" style="flex-wrap:wrap;">
-              <button class="btn" onclick="addInputPhotos()">📷 拍照</button>
-              <button class="btn" onclick="addInputFiles()">🖼 相册选择（可多张）</button>
-              <button class="btn" onclick="pasteInput()">📋 粘贴截图</button>
-              <input type="file" id="input-file" accept="image/*" multiple style="display:none;" />
-              <input type="file" id="input-cam" accept="image/*" capture="environment" style="display:none;" />
+            <div class="split">
+              <div class="split-pane">
+                <div class="pane-head">📄 题目图片 <span class="tag">必传 · 可多张</span></div>
+                <div class="pane-body">
+                  <div class="flex" style="flex-wrap:wrap;">
+                    <button class="btn btn-sm" onclick="addInputFiles('q')">🖼 相册</button>
+                    <button class="btn btn-sm" onclick="addInputPhotos('q')">📷 拍照</button>
+                    <button class="btn btn-sm" onclick="pasteInput('q')">📋 粘贴</button>
+                    <input type="file" id="input-file-q" accept="image/*" multiple style="display:none;" />
+                    <input type="file" id="input-cam-q" accept="image/*" capture="environment" style="display:none;" />
+                  </div>
+                  <div id="input-q-imgs" class="input-img-grid mt-8"></div>
+                </div>
+              </div>
+              <div class="split-pane">
+                <div class="pane-head">📝 解题过程图片 <span class="tag">可选 · 可多张</span></div>
+                <div class="pane-body">
+                  <div class="flex" style="flex-wrap:wrap;">
+                    <button class="btn btn-sm" onclick="addInputFiles('s')">🖼 相册</button>
+                    <button class="btn btn-sm" onclick="addInputPhotos('s')">📷 拍照</button>
+                    <button class="btn btn-sm" onclick="pasteInput('s')">📋 粘贴</button>
+                    <input type="file" id="input-file-s" accept="image/*" multiple style="display:none;" />
+                    <input type="file" id="input-cam-s" accept="image/*" capture="environment" style="display:none;" />
+                  </div>
+                  <div id="input-s-imgs" class="input-img-grid mt-8"></div>
+                </div>
+              </div>
             </div>
-            <div class="small muted mt-8">
-              单题：传 1 张即可直接校对保存。批量：传多张，点图片可切换「题目 / 解题」，再点选配对（或点「自动配对」按顺序配对）。
-            </div>
-            <div id="input-imgs" class="input-img-grid mt-16"></div>
-            <div class="flex mt-16" id="input-pair-actions" style="display:none;">
+            <div class="small muted mt-8">单题：题目传 1 张即可；不需要过程时点题目卡上的「该题无过程」。批量：题目/过程各传多张，点「自动配对」按顺序配对，或点题目图 → 点过程图手动配对。</div>
+            <div class="flex mt-8" id="input-pair-actions" style="display:none;">
               <button class="btn btn-sm" onclick="autoPairInput()">⚡ 自动配对（按顺序）</button>
-              <button class="btn btn-sm" onclick="toggleSkipPair()" id="input-skip-btn">跳过配对 · 逐张录入</button>
               <span class="small muted" id="input-pair-hint">点一张「题目」再点一张「解题」可手动配对</span>
             </div>
             <div class="small muted mt-8" id="batch-hint"></div>
@@ -471,7 +488,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.6.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.7.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
@@ -484,26 +501,17 @@
 
           <div class="card">
             <div class="card-head"><div class="card-title">OCR 服务</div><span class="tag tag-primary" id="ocr-mode-tag">引擎：模拟</span></div>
-            <div class="grid grid-2">
-              <div class="field">
-                <label>识别引擎</label>
-                <select class="select" id="ocr-engine">
-                  <option value="mock">模拟（本机测试，无需配置）</option>
-                  <option value="mineru">MinerU（真实识别）</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>MinerU Token</label>
-                <input class="input" id="ocr-token" type="password" placeholder="在 mineru.net 控制台获取" />
-              </div>
-            </div>
             <div class="field">
-              <label>API 地址</label>
-              <input class="input" id="ocr-base" placeholder="https://api.mineru.net" />
+              <label>识别引擎</label>
+              <select class="select" id="ocr-engine">
+                <option value="mock">模拟（无需网络）</option>
+                <option value="mineru">MinerU（真实识别）</option>
+              </select>
+              <div class="hint">MinerU 使用本机已安装的 mineru-open-api 与 ~/.mineru/config.yaml 中的 Token，识别在本地服务完成。</div>
             </div>
             <div class="flex">
               <button class="btn btn-primary" onclick="saveOcrConfig()">保存并测试连通性</button>
-              <span class="small muted">数据仍存本机；识别由 MinerU 云端完成，测试会记录耗时。</span>
+              <span class="small muted">测试会用一张示例图真实识别并记录耗时。</span>
             </div>
           </div>
 

@@ -23,7 +23,7 @@
 | --- | --- | --- | --- |
 | `loadAll()` | 无 | 整库对象 `{ questions, reviewLogs, tree, study, remindOn }` | 本地：读 localStorage；远端：拉取全量数据或按需加载 |
 | `saveAll(data)` | 整库对象 | 无 | 本地：写 localStorage；远端：由各写接口替代，可不实现 |
-| `ocrRecognize(image, opts)` | `image`（本地：`{dataUrl,name}`；远端：File）、`opts.isSolution` | `{ taskId, titleTex, solutionTex, lowConf, source }`（远端先返回 `{ taskId }`） | 提交单张图片 OCR；Phase C 后端内部转发 MinerU |
+| `ocrRecognize(image, opts)` | `image`（`{dataUrl,name}`）、`opts.isSolution` | `{ taskId, titleTex, solutionTex, lowConf, source, costSec }` | 提交单张图片 OCR；本地服务调用 MinerU 官方 CLI（pipeline，失败回退 flash） |
 | `ocrStatus(taskId)` | taskId | `{ status: "pending"\|"done"\|"failed", result? }` | 轮询 OCR 任务（Phase C 使用） |
 | `checkDuplicate(payload)` | `{ titleTex, subject, type, excludeId, pool? }` | 疑似重复题目数组 | 同科目同类型 + 7 天时间窗 + 中文 bigram Jaccard > 0.7；远端由后端查库 |
 | `listQuestions()` | 无 | 题目数组 | 题库列表 |

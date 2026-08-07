@@ -20,7 +20,7 @@ const testDir = mkdtempSync(join(tmpdir(), "mb-browser-"));
 const dbFile = join(testDir, "test.db");
 const server = spawn("node", ["server.js"], {
   cwd: "C:/Users/32949/Desktop/assets",
-  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile },
+  env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile, MINERU_DISABLE: "1" },
   stdio: "ignore"
 });
 await sleep(1200);
@@ -74,6 +74,12 @@ try {
   // 整页截图
   const full = await call("Page.captureScreenshot", { captureBeyondViewport: true });
   writeFileSync(OUT + which + "-dashboard-full.png", Buffer.from(full.data, "base64"));
+
+  // 录入页（题目/过程双上传区）
+  await evalJS(`go("input"); true`);
+  await sleep(800);
+  const inputShot = await call("Page.captureScreenshot");
+  writeFileSync(OUT + which + "-input.png", Buffer.from(inputShot.data, "base64"));
 
   // 滚动到复习区
   await evalJS(`document.getElementById("dash-review").scrollIntoView({block:"start"}); true`);
