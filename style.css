@@ -1,14 +1,14 @@
 /* ============================================================
-   考研错题本 · 前端风格系统 v1.9.0
-   设计语言：学习工具 · 现代清爽 · 卡片式 · 六级语义色
+   考研错题本 · 前端风格系统 v1.9.1
+   设计语言：Apple 风 · 深色渐变 + 玻璃拟态 · 大圆角 · 系统字体
    ============================================================ */
 
 :root {
   /* 品牌色 */
-  --primary: #4C6EF5;
-  --primary-dark: #3B5BDB;
-  --primary-light: #EDF2FF;
-  --primary-soft: #F6F8FF;
+  --primary: #0A84FF;
+  --primary-dark: #0071E3;
+  --primary-light: #E8F2FF;
+  --primary-soft: #F4F9FF;
 
   /* 中性色 */
   --bg: #F4F6FB;
@@ -38,10 +38,10 @@
   --lv-darkred-bg: #F8E6E6;
 
   /* 几何 */
-  --radius: 14px;
-  --radius-sm: 8px;
-  --shadow: 0 1px 3px rgba(30, 42, 68, .06), 0 8px 24px rgba(30, 42, 68, .05);
-  --shadow-sm: 0 1px 2px rgba(30, 42, 68, .05);
+  --radius: 18px;
+  --radius-sm: 10px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 16px 40px rgba(0, 0, 0, .07);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .03), 0 4px 14px rgba(0, 0, 0, .04);
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
 }
@@ -543,31 +543,111 @@ a:hover { color: var(--primary-dark); }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; }
 
-/* ---------- 登录页 ---------- */
+/* ---------- 登录页（Apple 风：深色渐变 + 玻璃拟态） ---------- */
 .login-wrap {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 800px at 12% -10%, #1D2B64 0%, transparent 55%),
+    radial-gradient(1000px 720px at 110% 15%, #3A1C71 0%, transparent 52%),
+    radial-gradient(900px 700px at 50% 120%, #123A6B 0%, transparent 55%),
+    #05060C;
+  color: #fff;
+}
+
+.login-wrap::before,
+.login-wrap::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+}
+.login-wrap::before {
+  width: 520px; height: 520px;
+  left: -120px; top: -90px;
+  background: radial-gradient(circle, rgba(10, 132, 255, .55), transparent 65%);
+  animation: appleFloat 14s ease-in-out infinite alternate;
+}
+.login-wrap::after {
+  width: 640px; height: 640px;
+  right: -170px; bottom: -130px;
+  background: radial-gradient(circle, rgba(191, 90, 242, .45), transparent 65%);
+  animation: appleFloat 18s ease-in-out infinite alternate-reverse;
+}
+@keyframes appleFloat {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to   { transform: translate3d(42px, 30px, 0) scale(1.12); }
 }
 
 .login-brand {
-  background: linear-gradient(150deg, #3B5BDB, #748FFC 70%, #A5B4FC);
-  color: #fff;
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
   padding: 60px;
 }
 
-.login-brand h1 { font-size: 32px; font-weight: 800; margin-bottom: 14px; }
-.login-brand p { font-size: 15px; opacity: .85; max-width: 380px; line-height: 1.8; }
-.login-brand .flow { margin-top: 36px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.login-brand h1 {
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  margin-bottom: 16px;
+  background: linear-gradient(120deg, #FFFFFF, #B3C7FF);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.login-brand p { font-size: 15px; opacity: .75; max-width: 400px; line-height: 1.8; }
+.login-brand .flow { margin-top: 36px; display: flex; flex-direction: column; gap: 12px; font-size: 14px; opacity: .92; }
 .login-brand .flow div { display: flex; align-items: center; gap: 10px; }
-.login-brand .flow .dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; opacity: .8; }
+.login-brand .flow .dot { width: 8px; height: 8px; border-radius: 50%; background: #0A84FF; box-shadow: 0 0 12px rgba(10, 132, 255, .8); }
 
-.login-form { display: flex; align-items: center; justify-content: center; padding: 40px; }
-.login-card { width: 100%; max-width: 380px; }
-.login-card .logo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 26px; }
+.login-form { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 24px;
+  padding: 36px;
+  backdrop-filter: blur(28px) saturate(140%);
+  -webkit-backdrop-filter: blur(28px) saturate(140%);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
+}
+.login-card .logo-row { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+.login-card .brand-name { color: #fff; }
+.login-card .brand-sub { color: rgba(255, 255, 255, .55); }
+.login-card label { color: rgba(255, 255, 255, .85); }
+.login-card .input {
+  background: rgba(0, 0, 0, .28);
+  border-color: rgba(255, 255, 255, .14);
+  color: #fff;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.login-card .input::placeholder { color: rgba(255, 255, 255, .35); }
+.login-card .input:focus {
+  border-color: #0A84FF;
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, .25);
+  background: rgba(0, 0, 0, .36);
+}
+.login-card .btn-primary {
+  background: #0A84FF;
+  border-color: #0A84FF;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.login-card .btn-primary:hover { background: #3398FF; border-color: #3398FF; }
+.login-card input:-webkit-autofill {
+  -webkit-text-fill-color: #fff;
+  -webkit-box-shadow: 0 0 0 1000px #111827 inset;
+  caret-color: #fff;
+}
 
 /* ---------- 移动端底部 Tab（演示） ---------- */
 .mobile-tabbar { display: none; }
