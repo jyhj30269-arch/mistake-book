@@ -1,8 +1,9 @@
 /* ============================================================
-   考研错题本 · 业务逻辑 v1.3.0
-   版本：v1.3.0（仪表盘去重重构 · 产品经理视角全面审查）
+   考研错题本 · 业务逻辑 v1.4.0
+   版本：v1.4.0（缺陷修复包：真实导入 / 复习续传 / 真实时长 / 题目编辑 / 知识点管理 / 提醒 / 手动录入）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
-   去重：合并重复指标卡 / 图表区唯一化 / 推荐入口唯一化 /
+   真实 JSON 导入（合并/覆盖+ID 重映射）/ 复习断点续传 / 按天学习时长 /
+   题目编辑 / 知识点增删改 / 复习提醒 / OCR 转手动入口 /
    分层优先+加权随机抽题 / 四档自评 /
    六级掌握度+时间衰减 / 7 天去重窗口 / 多知识点 / 笔记标记 / 今日推荐 /
    导入导出预检 / 学习时长 / 统计图表
@@ -88,7 +89,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 
 const TREE = [
   {
@@ -263,10 +264,12 @@ function dupCountFor(q) {
 }
 
 /* ---------------- 导航 ---------------- */
+let currentView = "dashboard";
 function go(view) {
   $$("#view-app section").forEach(s => s.style.display = "none");
   $("#view-" + view).style.display = "block";
   $$(".nav-item, .mobile-tabbar a").forEach(a => a.classList.toggle("active", a.dataset.view === view));
+  currentView = view;
   if (view === "dashboard") renderDashboard();
   if (view === "questions") renderQuestions();
   if (view === "settings") renderSettings();
@@ -287,6 +290,7 @@ function doLogin() {
   $("#view-login").style.display = "none";
   $("#view-app").style.display = "block";
   go("dashboard");
+  setTimeout(remindCheckToday, 1200);
 }
 function doLogout() {
   $("#view-app").style.display = "none";
@@ -716,6 +720,24 @@ function toggleTexView() {
   toast(texView === "render" ? "渲染视图（KaTeX）" : "源码视图");
 }
 
+/* OCR 失败 / 不想识别时：直接手动录入 */
+function switchManualInput() {
+  $("#input-ocr-state").textContent = "手动输入模式";
+  $("#input-ocr-status").textContent = "已切换为手动输入：直接填写题面与解题过程，无需识别。";
+  $("#input-ocr-btn").disabled = false;
+  $("#input-ocr-progress-wrap").style.display = "none";
+  if (!inputQueue.length && inputImgs.length) {
+    inputQueue = inputImgs.filter(x => x.kind === "q").map(x => ({
+      qImgId: x.id, sImgId: null, titleTex: "", solutionTex: "", status: "done"
+    }));
+    inputCursor = 0;
+    renderInputReview();
+  }
+  const t = $("#input-title");
+  if (t) t.focus();
+  toast("已切换手动输入");
+}
+
 function resetInput() {
   $("#input-title").value = "";
   $("#input-solution").value = "";
@@ -1004,6 +1026,7 @@ function openDetail(id) {
         <div class="page-sub">${esc(TREE.find(s => s.id === q.subject)?.name || "")} → ${esc(TREE.flatMap(s => s.children).find(c => c.id === q.subSubject)?.name || "")} · ${fmtDate(q.createdAt)} 录入</div>
       </div>
       <div class="topbar-right">
+        <button class="btn" onclick="openEditModal(${q.id})">✏️ 编辑</button>
         <button class="btn" onclick="toggleMark(${q.id},'star')">★ 星标${q.marks.star ? "（已标）" : ""}</button>
         <button class="btn" onclick="toggleMark(${q.id},'rescratch')">↻ 待二刷${q.marks.rescratch ? "（已标）" : ""}</button>
         <button class="btn" onclick="toggleMark(${q.id},'classic')">✦ 经典好题${q.marks.classic ? "（已标）" : ""}</button>
@@ -1079,6 +1102,85 @@ function saveNote(id) {
   toast("笔记已保存");
 }
 
+/* ---------------- 题目编辑 ---------------- */
+function openEditModal(id) {
+  const q = questions.find(x => x.id === id);
+  if (!q) return;
+  const subjOptions = TREE.map(s => `<option value="${s.id}" ${q.subject === s.id ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+  const subj = TREE.find(s => s.id === q.subject);
+  const ssOptions = (subj ? subj.children : []).map(c => `<option value="${c.id}" ${q.subSubject === c.id ? "selected" : ""}>${esc(c.name)}</option>`).join("");
+  const ss = subj ? subj.children.find(c => c.id === q.subSubject) : null;
+  const chOptions = `<option value="">未分章</option>` + (ss ? ss.children.map(ch => `<option value="${ch.id}" ${q.chapter === ch.id ? "selected" : ""}>${esc(ch.name)}</option>`).join("") : "");
+  const kps = ss && ss.children.find(ch => ch.id === q.chapter);
+  const kpChips = `<span class="chip ${!q.kps.length ? "on" : ""}" data-k="" onclick="toggleEditKp(this)">∅ 未分类</span>` +
+    ((kps ? kps.children : []).map(k => `<span class="chip ${q.kps.includes(k) ? "on" : ""}" data-k="${esc(k)}" onclick="toggleEditKp(this)">${esc(k)}</span>`).join(""));
+  const tagChips = TAGS.map(t => `<span class="chip ${q.tags.includes(t.key) ? "on" : ""}" data-k="${t.key}" onclick="toggleEditTag(this)">${t.icon} ${t.name}</span>`).join("");
+  window.__editQ = q;
+  window.__editKps = new Set(q.kps);
+  window.__editTags = new Set(q.tags);
+  openModal(`编辑题目 #${q.id}`, `
+    <div class="field"><label>题面（LaTeX）</label><textarea class="textarea" id="edit-title" rows="4">${esc(q.titleTex)}</textarea></div>
+    <div class="field"><label>解题过程</label><textarea class="textarea" id="edit-solution" rows="3">${esc(q.solutionTex || "")}</textarea></div>
+    <div class="field"><label>笔记 / 心得</label><textarea class="textarea" id="edit-note" rows="2">${esc(q.note || "")}</textarea></div>
+    <div class="grid grid-2">
+      <div class="field"><label>科目</label><select class="select" id="edit-subject" onchange="editFillSub()">${subjOptions}</select></div>
+      <div class="field"><label>子科目</label><select class="select" id="edit-subsub" onchange="editFillChapter()">${ssOptions}</select></div>
+    </div>
+    <div class="field"><label>章节</label><select class="select" id="edit-chapter" onchange="editFillKps()">${chOptions}</select></div>
+    <div class="field"><label>知识点（多选）</label><div class="flex" id="edit-kps" style="flex-wrap:wrap;">${kpChips}</div></div>
+    <div class="field"><label>错因标签</label><div class="flex" id="edit-tags" style="flex-wrap:wrap;">${tagChips}</div></div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="saveEditQuestion()">保存修改</button>`
+  );
+}
+
+function editFillSub() {
+  const subj = TREE.find(s => s.id === $("#edit-subject").value);
+  $("#edit-subsub").innerHTML = (subj ? subj.children : []).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+  editFillChapter();
+}
+function editFillChapter() {
+  const ss = TREE.flatMap(s => s.children).find(c => c.id === $("#edit-subsub").value);
+  $("#edit-chapter").innerHTML = `<option value="">未分章</option>` + (ss ? ss.children.map(ch => `<option value="${ch.id}">${esc(ch.name)}</option>`).join("") : "");
+  editFillKps();
+}
+function editFillKps() {
+  const ch = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === $("#edit-chapter").value);
+  const kps = ch ? ch.children : [];
+  $("#edit-kps").innerHTML = `<span class="chip on" data-k="" onclick="toggleEditKp(this)">∅ 未分类</span>` +
+    kps.map(k => `<span class="chip" data-k="${esc(k)}" onclick="toggleEditKp(this)">${esc(k)}</span>`).join("");
+  window.__editKps = new Set();
+  $$("#edit-kps .chip.on").forEach(c => window.__editKps.add(c.dataset.k));
+}
+function toggleEditKp(el) {
+  el.classList.toggle("on");
+  const k = el.dataset.k;
+  if (el.classList.contains("on")) window.__editKps.add(k); else window.__editKps.delete(k);
+}
+function toggleEditTag(el) {
+  el.classList.toggle("on");
+  const k = el.dataset.k;
+  if (el.classList.contains("on")) window.__editTags.add(k); else window.__editTags.delete(k);
+}
+function saveEditQuestion() {
+  const q = window.__editQ;
+  if (!q) return;
+  const titleTex = $("#edit-title").value.trim();
+  if (!titleTex) { toast("题面不能为空", "error"); return; }
+  q.titleTex = titleTex;
+  q.solutionTex = $("#edit-solution").value.trim();
+  q.note = $("#edit-note").value.trim();
+  q.subject = $("#edit-subject").value;
+  q.subSubject = $("#edit-subsub").value;
+  q.chapter = $("#edit-chapter").value;
+  q.kps = Array.from(window.__editKps).filter(Boolean);
+  q.tags = Array.from(window.__editTags);
+  persistLocal();
+  closeModal();
+  toast("题目已更新", "success");
+  openDetail(q.id);
+}
+
 function quickRate(id, result) {
   reviewLogs.push({ id: ++reviewSeq, qid: id, at: Date.now(), result });
   const q = questions.find(x => x.id === id);
@@ -1144,6 +1246,46 @@ function renderReviewConfig() {
   $("#review-config").style.display = "";
   $("#review-play").style.display = "none";
   $("#review-done").style.display = "none";
+  renderResumeButton();
+}
+
+/* 复习断点续传 */
+function renderResumeButton() {
+  const btn = $("#review-resume-btn");
+  if (!btn) return;
+  try {
+    const r = JSON.parse(localStorage.getItem("review-resume") || "null");
+    if (r && Array.isArray(r.queue) && r.idx < r.queue.length) {
+      btn.style.display = "";
+      btn.textContent = `↻ 继续上次复习（已做 ${r.idx} / ${r.queue.length}）`;
+    } else {
+      btn.style.display = "none";
+    }
+  } catch (e) { btn.style.display = "none"; }
+}
+
+function continueResume() {
+  let r = null;
+  try { r = JSON.parse(localStorage.getItem("review-resume") || "null"); } catch (e) { /* 忽略 */ }
+  if (!r || !Array.isArray(r.queue)) { toast("没有可继续的复习进度", "error"); return; }
+  const pool = r.queue.map(id => questions.find(q => q.id === id)).filter(Boolean);
+  if (!pool.length) {
+    toast("上次的题目已被删除，无法继续", "error");
+    localStorage.removeItem("review-resume");
+    renderResumeButton();
+    return;
+  }
+  reviewQueue = pool;
+  reviewIdx = Math.min(r.idx, pool.length);
+  reviewResults = [];
+  reviewStartedAt = Date.now();
+  localStorage.removeItem("review-resume");
+  renderResumeButton();
+  $("#review-config").style.display = "none";
+  $("#review-done").style.display = "none";
+  $("#review-play").style.display = "";
+  showReviewCard();
+  toast("已恢复上次复习进度", "success");
 }
 
 function renderRecPanel() {
@@ -1357,7 +1499,7 @@ function renderStats() {
   for (let i = 29; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86400000);
     days.push(`${d.getMonth() + 1}/${d.getDate()}`);
-    vals.push(Math.round(35 + Math.sin((Date.now() / 86400000 - i) / 2) * 18 + Math.random() * 12));
+    vals.push(Math.round((study.perDay[fmtDate(d.getTime())] || 0) / 60)); // 真实按天记录（秒 → 分钟）
   }
   echarts.init(studyChart).setOption({
     tooltip: {},
@@ -1393,6 +1535,22 @@ function demoNotify() {
   toast("演示通知（浏览器可能要求授权）");
 }
 
+/* 打开 App 时提醒：今天还没复习过则弹一次（同一天不重复） */
+function remindCheckToday() {
+  if (!remindOn) return;
+  const today = fmtDate(Date.now());
+  if (localStorage.getItem("mb-remind-date") === today) return;
+  const reviewed = reviewLogs.some(l => fmtDate(l.at) === today);
+  if (!reviewed) {
+    localStorage.setItem("mb-remind-date", today);
+    openModal("📌 今日复习提醒", `
+      <div class="small">今天还没有复习记录。打开 App 是复习的最好时机，去抽几题吧。</div>`,
+      `<button class="btn" onclick="closeModal()">稍后再说</button>
+       <button class="btn btn-primary" onclick="closeModal();goDashSection('review')">去复习</button>`
+    );
+  }
+}
+
 function renderSettings() {
   $$("#rev-num-default .chip").forEach(c => c.onclick = () => selectDefaultNum(c.dataset.v));
   $$("#rev-num-default .chip").forEach(x => x.classList.toggle("on", x.dataset.v === String(reviewCfg.num)));
@@ -1404,6 +1562,7 @@ function renderSettings() {
       <b>${esc(s.name)}</b>
       <div class="flex">
         <button class="btn btn-sm" onclick="addNode('${s.id}')">＋子</button>
+        <button class="btn btn-sm" onclick="renameNode('${s.id}')">改</button>
         <button class="btn btn-sm btn-danger" onclick="delNode('${s.id}')">删</button>
       </div>
     </div>
@@ -1413,13 +1572,22 @@ function renderSettings() {
           <span>∟ ${esc(c.name)}</span>
           <div class="flex">
             <button class="btn btn-sm" onclick="addNode('${c.id}')">＋章</button>
+            <button class="btn btn-sm" onclick="renameNode('${c.id}')">改</button>
             <button class="btn btn-sm btn-danger" onclick="delNode('${c.id}')">删</button>
           </div>
         </div>
         <div class="tree-children">
-          ${c.children.map(ch => `<div class="flex-between" style="padding:3px 8px;">
-            <span>∟ ${esc(ch.name)}</span>
-            <button class="btn btn-sm btn-danger" onclick="delChapter('${c.id}','${esc(ch)}')">删</button>
+          <div class="flex-between" style="padding:3px 8px;">
+            <span>∟ ${esc(c.name)} · 知识点</span>
+            <div class="flex">
+              <button class="btn btn-sm" onclick="addKp('${c.id}')">＋知识点</button>
+              <button class="btn btn-sm" onclick="renameNode('${c.id}')">改</button>
+              <button class="btn btn-sm btn-danger" onclick="delNode('${c.id}')">删</button>
+            </div>
+          </div>
+          ${c.children.map(k => `<div class="flex-between" style="padding:3px 8px 3px 22px;">
+            <span>∟ ${esc(k)}</span>
+            <button class="btn btn-sm btn-danger" data-ch="${c.id}" data-k="${esc(k)}" onclick="askDelKp(this)">删</button>
           </div>`).join("")}
         </div>`).join("")}
     </div>`).join("");
@@ -1448,20 +1616,96 @@ function doAddNode(parentId) {
   renderSettings();
   toast("节点已添加（支持完全自定义）", "success");
 }
+
+function addKp(chapterId) {
+  const ch = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === chapterId);
+  if (!ch) return;
+  const name = prompt("知识点名称：");
+  if (!name || !name.trim()) return;
+  if (ch.children.includes(name.trim())) { toast("该知识点已存在", "error"); return; }
+  ch.children.push(name.trim());
+  persistLocal();
+  renderSettings();
+  toast("知识点已添加", "success");
+}
+
+function askDelKp(btn) {
+  const chapterId = btn.dataset.ch;
+  const name = btn.dataset.k;
+  const qCount = questions.filter(q => q.kps.includes(name)).length;
+  openModal("删除知识点", `
+    <div class="small muted">${qCount ? `有 <b>${qCount}</b> 道题关联该知识点，删除后这些题将变为「未分类」。` : "确认删除该知识点？"}</div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-danger" onclick="closeModal();doDelKp('${chapterId}','${esc(name)}')">确认删除</button>`
+  );
+}
+
+function doDelKp(chapterId, name) {
+  const ch = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === chapterId);
+  if (!ch) return;
+  ch.children = ch.children.filter(k => k !== name);
+  questions.forEach(q => { if (q.kps.includes(name)) q.kps = []; });
+  persistLocal();
+  renderSettings();
+  toast("知识点已删除，相关题目归入未分类", "success");
+}
+
+function renameNode(id) {
+  const subj = TREE.find(s => s.id === id);
+  let target = subj;
+  if (!target) target = TREE.flatMap(s => s.children).find(c => c.id === id);
+  if (!target) target = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === id);
+  if (!target) return;
+  const name = prompt("新名称：", target.name);
+  if (name && name.trim()) {
+    target.name = name.trim();
+    persistLocal();
+    renderSettings();
+    toast("已重命名", "success");
+  }
+}
+
 function delNode(id) {
   const subj = TREE.find(s => s.id === id);
   if (subj) {
     const qCount = questions.filter(q => q.subject === id).length;
     if (qCount) { toast(`禁止删除：该科目下有 ${qCount} 道错题（RESTRICT 保护）`, "error"); return; }
-  } else {
-    const ss = TREE.flatMap(s => s.children).find(c => c.id === id);
-    if (ss) {
-      const qCount = questions.filter(q => q.subSubject === id).length;
-      if (qCount) { toast(`禁止删除：该子科目下有 ${qCount} 道错题`, "error"); return; }
-      if (ss.children.length) { toast("有子节点，禁止删除", "error"); return; }
-    }
+    openModal("删除科目", `确认删除科目「${esc(subj.name)}」？`,
+      `<button class="btn" onclick="closeModal()">取消</button>
+       <button class="btn btn-danger" onclick="closeModal();doDelSubject('${id}')">确认删除</button>`);
+    return;
   }
-  toast("（演示）节点删除规则校验通过");
+  const ss = TREE.flatMap(s => s.children).find(c => c.id === id);
+  if (ss) {
+    const qCount = questions.filter(q => q.subSubject === id).length;
+    if (qCount) { toast(`禁止删除：该子科目下有 ${qCount} 道错题`, "error"); return; }
+    if (ss.children.length) { toast("有子节点，禁止删除", "error"); return; }
+    openModal("删除子科目", `确认删除子科目「${esc(ss.name)}」？`,
+      `<button class="btn" onclick="closeModal()">取消</button>
+       <button class="btn btn-danger" onclick="closeModal();doDelSubSubject('${id}')">确认删除</button>`);
+    return;
+  }
+  const ch = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === id);
+  if (ch) {
+    const qCount = questions.filter(q => q.chapter === id).length;
+    openModal("删除章节", `${qCount ? `该章节下有 <b>${qCount}</b> 道错题，删除后这些题目将变为未分类。` : ""}确认删除章节「${esc(ch.name)}」？`,
+      `<button class="btn" onclick="closeModal()">取消</button>
+       <button class="btn btn-danger" onclick="closeModal();doDelChapterById('${id}')">确认删除</button>`);
+  }
+}
+function doDelSubject(id) {
+  const i = TREE.findIndex(s => s.id === id);
+  if (i >= 0) TREE.splice(i, 1);
+  persistLocal(); renderSettings(); toast("科目已删除", "success");
+}
+function doDelSubSubject(id) {
+  TREE.forEach(s => { s.children = s.children.filter(c => c.id !== id); });
+  persistLocal(); renderSettings(); toast("子科目已删除", "success");
+}
+function doDelChapterById(id) {
+  TREE.forEach(s => s.children.forEach(c => { c.children = c.children.filter(ch => ch.id !== id); }));
+  questions.forEach(q => { if (q.chapter === id) q.chapter = ""; });
+  persistLocal(); renderSettings(); toast("章节已删除，相关题目归入未分类", "success");
 }
 function delChapter(ssId, name) {
   const ss = TREE.flatMap(s => s.children).find(c => c.id === ssId);
@@ -1499,22 +1743,110 @@ function exportJSON() {
   toast("JSON 已导出（含全部业务数据与复习记录）", "success");
 }
 
-function showImport() {
-  const total = questions.length;
-  openModal("导入预检（合并模式）", `
-    <div class="alert alert-info">解析完成，以下为导入摘要：</div>
+/* ---------------- 导入导出（真实实现） ---------------- */
+function handleImportFile(files) {
+  const f = files && files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data.questions)) throw new Error("缺少 questions 数组");
+      window.__importData = data;
+      showImportSummary(importPreview(data));
+    } catch (e) {
+      toast("导入文件解析失败：" + e.message, "error");
+    }
+  };
+  reader.readAsText(f);
+  $("#import-file").value = "";
+}
+
+function importPreview(data) {
+  const existing = new Set(questions.map(q => norm(q.titleTex) + "|" + q.subject + "|" + q.type));
+  let add = 0, upd = 0;
+  data.questions.forEach(q => {
+    const key = norm(q.titleTex) + "|" + q.subject + "|" + q.type;
+    existing.has(key) ? upd++ : add++;
+  });
+  const logs = Array.isArray(data.reviewLogs) ? data.reviewLogs.length : 0;
+  return { add, upd, logs, treeAdd: treeDiffCount(data.tree) };
+}
+
+function treeDiffCount(inTree) {
+  if (!Array.isArray(inTree)) return 0;
+  let n = 0;
+  inTree.forEach(s => {
+    const subj = TREE.find(x => x.id === s.id);
+    if (!subj) { n++; return; }
+    (s.children || []).forEach(c => {
+      const ss = subj.children.find(y => y.id === c.id);
+      if (!ss) { n++; return; }
+      (c.children || []).forEach(ch => { if (!ss.children.includes(ch)) n++; });
+    });
+  });
+  return n;
+}
+
+function showImportSummary(prev) {
+  openModal("导入预检", `
+    <div class="alert alert-info">解析完成，请确认以下导入摘要：</div>
     <div class="small" style="line-height:2;">
-      将新增 <b>12</b> 条题目（按 科目+题面+类型 判定不存在）<br />
-      将覆盖 <b>3</b> 条（同题面已存在，更新解析/知识点）<br />
-      将删除 <b>0</b> 条（合并模式不删除）<br />
-      复习记录：将导入 <b>40</b> 条（自动 ID 重映射）
+      将新增 <b>${prev.add}</b> 条题目（按 科目+类型+题面归一化 判定）<br />
+      将更新 <b>${prev.upd}</b> 条（同题面已存在，覆盖解析/知识点/错因）<br />
+      将导入 <b>${prev.logs}</b> 条复习记录（自动 ID 重映射 + 去重）<br />
+      知识点树：将新增 <b>${prev.treeAdd}</b> 个节点（同名跳过）
     </div>
     <div class="divider"></div>
-    <div class="small muted">默认仅"合并"；"覆盖"需输入确认文字，且导入前自动备份。</div>`,
+    <div class="small muted">默认「合并」保留现有数据；「覆盖」会清空现有数据，需输入确认文字。</div>`,
     `<button class="btn" onclick="closeModal()">取消</button>
-     <button class="btn btn-primary" onclick="closeModal();toast('合并完成（原型模拟）','success')">确认合并</button>
+     <button class="btn btn-primary" onclick="closeModal();doMergeImport()">确认合并</button>
      <button class="btn btn-danger" onclick="showOverwriteConfirm()">覆盖模式</button>`
   );
+}
+
+function mergeTree(inTree) {
+  if (!Array.isArray(inTree)) return;
+  inTree.forEach(s => {
+    let subj = TREE.find(x => x.id === s.id);
+    if (!subj) { subj = { id: s.id, name: s.name, children: [] }; TREE.push(subj); }
+    (s.children || []).forEach(c => {
+      let ss = subj.children.find(y => y.id === c.id);
+      if (!ss) { ss = { id: c.id, name: c.name, children: [] }; subj.children.push(ss); }
+      (c.children || []).forEach(ch => { if (!ss.children.includes(ch)) ss.children.push(ch); });
+    });
+  });
+}
+
+function doMergeImport() {
+  const data = window.__importData;
+  if (!data) return;
+  mergeTree(data.tree);
+  const idMap = {};
+  data.questions.forEach(q => {
+    const hit = questions.find(x => x.subject === q.subject && x.type === q.type && norm(x.titleTex) === norm(q.titleTex));
+    if (hit) {
+      Object.assign(hit, q, { id: hit.id, createdAt: hit.createdAt });
+      idMap[q.id] = hit.id;
+    } else {
+      const newId = nextQid();
+      idMap[q.id] = newId;
+      questions.push({ ...q, id: newId });
+    }
+  });
+  const seen = new Set(reviewLogs.map(l => l.qid + "|" + l.at + "|" + l.result));
+  (data.reviewLogs || []).forEach(l => {
+    const qid = idMap[l.qid];
+    if (qid == null) return;
+    const key = qid + "|" + l.at + "|" + l.result;
+    if (seen.has(key)) return;
+    seen.add(key);
+    reviewLogs.push({ id: ++reviewSeq, qid, at: l.at, result: l.result });
+  });
+  window.__importData = null;
+  persistLocal();
+  toast("合并完成，复习记录已重映射", "success");
+  go("dashboard");
 }
 function showOverwriteConfirm() {
   openModal("覆盖模式（危险操作）", `
@@ -1526,14 +1858,32 @@ function showOverwriteConfirm() {
 }
 function doOverwrite() {
   if ($("#ov-confirm").value.trim() !== "覆盖") { toast("需输入「覆盖」二字", "error"); return; }
+  const data = window.__importData;
+  if (!data) { closeModal(); return; }
+  questions = [];
+  reviewLogs = [];
+  if (Array.isArray(data.tree) && data.tree.length) {
+    TREE.length = 0;
+    data.tree.forEach(s => TREE.push(s));
+  }
+  data.questions.forEach(q => questions.push({ ...q }));
+  (data.reviewLogs || []).forEach(l => reviewLogs.push({ id: ++reviewSeq, qid: l.qid, at: l.at, result: l.result }));
+  qidSeq = Math.max(100, ...questions.map(q => q.id || 0));
+  window.__importData = null;
+  persistLocal();
   closeModal();
-  toast("已覆盖导入（原型模拟，导入前已自动备份）", "success");
+  toast("已覆盖导入", "success");
+  go("dashboard");
 }
 
 /* ---------------- 学习时长 ---------------- */
-const study = { seconds: 0, timer: null, lastBlur: 0, blurPrompt: false };
+const study = { seconds: 0, timer: null, lastBlur: 0, blurPrompt: false, perDay: {} };
 function studyTick() {
+  // 只在录入 / 仪表盘（含复习）页面计时，避免挂机虚增
+  if (currentView !== "dashboard" && currentView !== "input") return;
   study.seconds++;
+  const today = fmtDate(Date.now());
+  study.perDay[today] = (study.perDay[today] || 0) + 1;
   const m = Math.floor(study.seconds / 60);
   const d = $("#stats-time"); if (d) d.textContent = m;
   if (study.seconds % 60 === 0) persistLocal(); // 每分钟落盘一次
@@ -1561,7 +1911,7 @@ function persistLocal() {
     tree: TREE,
     qidSeq,
     reviewSeq,
-    study: { seconds: study.seconds, blurPrompt: study.blurPrompt },
+    study: { seconds: study.seconds, blurPrompt: study.blurPrompt, perDay: study.perDay },
     remindOn,
     reviewCfg: { ...reviewCfg }
   });
@@ -1578,7 +1928,11 @@ function loadLocal() {
   }
   qidSeq = Math.max(100, ...questions.map(q => q.id || 0));
   reviewSeq = reviewLogs.length || 0;
-  if (d.study) { study.seconds = d.study.seconds || 0; study.blurPrompt = !!d.study.blurPrompt; }
+  if (d.study) {
+    study.seconds = d.study.seconds || 0;
+    study.blurPrompt = !!d.study.blurPrompt;
+    study.perDay = d.study.perDay || {};
+  }
   if (typeof d.remindOn === "boolean") remindOn = d.remindOn;
   if (d.reviewCfg) reviewCfg = { sub: "all", chapter: "", lv: "all", num: 3, ...d.reviewCfg };
   return true;
@@ -1662,11 +2016,29 @@ window.delNode = delNode;
 window.delChapter = delChapter;
 window.doDelChapter = doDelChapter;
 window.exportJSON = exportJSON;
-window.showImport = showImport;
+window.handleImportFile = handleImportFile;
+window.doMergeImport = doMergeImport;
 window.showOverwriteConfirm = showOverwriteConfirm;
 window.doOverwrite = doOverwrite;
 window.resetDemoData = resetDemoData;
 window.doResetDemo = doResetDemo;
+window.continueResume = continueResume;
+window.renderResumeButton = renderResumeButton;
+window.openEditModal = openEditModal;
+window.editFillSub = editFillSub;
+window.editFillChapter = editFillChapter;
+window.editFillKps = editFillKps;
+window.toggleEditKp = toggleEditKp;
+window.toggleEditTag = toggleEditTag;
+window.saveEditQuestion = saveEditQuestion;
+window.addKp = addKp;
+window.askDelKp = askDelKp;
+window.doDelKp = doDelKp;
+window.renameNode = renameNode;
+window.doDelSubject = doDelSubject;
+window.doDelSubSubject = doDelSubSubject;
+window.doDelChapterById = doDelChapterById;
+window.switchManualInput = switchManualInput;
 window.closeModal = closeModal;
 window.showReviewDone = showReviewDone;
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 考研错题本 v1.3.0 -->
+  <!-- 考研错题本 v1.4.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>考研错题本</title>
@@ -63,9 +63,7 @@
         <a class="nav-item active" data-view="input"><span class="icon">📸</span>识别录入</a>
         <a class="nav-item" data-view="questions"><span class="icon">🗂</span>题库</a>
 
-        <div class="nav-group">学习</div>
-        <a class="nav-item" onclick="goDashSection('review')"><span class="icon">🎯</span>随机复习</a>
-        <a class="nav-item" onclick="goDashSection('stats')"><span class="icon">📈</span>数据统计</a>
+        <div class="nav-group">系统</div>
         <a class="nav-item" data-view="settings"><span class="icon">⚙️</span>设置</a>
 
         <div class="side-foot">
@@ -137,7 +135,10 @@
               <div class="dash-section-title">🎯 随机复习</div>
               <div class="small muted" id="review-sub"></div>
             </div>
-            <span class="tag">分层优先 + 加权随机 · 做错加急 · 覆盖保证</span>
+            <div class="flex">
+              <span class="tag" id="review-resume-btn" style="display:none;cursor:pointer;border-color:var(--primary);color:var(--primary-dark);" onclick="continueResume()">↻ 继续上次复习</span>
+              <span class="tag">分层优先 + 加权随机 · 做错加急 · 覆盖保证</span>
+            </div>
           </div>
           <div class="card" id="review-config">
             <div class="card-head"><div class="card-title">抽题配置</div><span class="tag">可记忆默认抽题数量（设置页修改）</span></div>
@@ -283,7 +284,8 @@
             <div class="flex-between mb-16">
               <div class="small muted" id="input-queue-info">共 0 道题待录入</div>
               <div class="flex">
-                <button class="btn btn-primary" onclick="startInputOCR()" id="input-ocr-btn">▶ 开始识别</button>
+              <button class="btn" onclick="switchManualInput()" id="input-manual-btn">✏️ 转手动输入</button>
+              <button class="btn btn-primary" onclick="startInputOCR()" id="input-ocr-btn">▶ 开始识别</button>
               </div>
             </div>
             <div class="progress mb-16" id="input-ocr-progress-wrap" style="display:none;"><i id="input-ocr-progress" style="width:0%"></i></div>
@@ -463,12 +465,13 @@
               前端 API 接口（<span class="mono">api.js</span>）已预留，后端完成后切换为 remote 模式即可，业务代码无需改动。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.3.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.4.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
               <button class="btn" onclick="exportJSON()">⬇ 导出 JSON 备份</button>
-              <button class="btn" onclick="showImport()">⬆ 导入预检</button>
+              <button class="btn" onclick="document.getElementById('import-file').click()">⬆ 导入 JSON</button>
+              <input type="file" id="import-file" accept="application/json,.json" style="display:none;" onchange="handleImportFile(this.files)" />
               <button class="btn btn-danger" onclick="resetDemoData()">重置演示数据</button>
             </div>
           </div>
@@ -515,8 +518,6 @@
       <a data-view="dashboard" class="active"><span class="icon">📊</span>首页</a>
       <a data-view="input"><span class="icon">📸</span>录入</a>
       <a data-view="questions"><span class="icon">🗂</span>题库</a>
-      <a onclick="goDashSection('review')"><span class="icon">🎯</span>复习</a>
-      <a onclick="goDashSection('stats')"><span class="icon">📈</span>统计</a>
       <a data-view="settings"><span class="icon">⚙️</span>设置</a>
     </div>
   </div>
