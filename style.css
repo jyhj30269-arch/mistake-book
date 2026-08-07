@@ -1,5 +1,5 @@
 /* ============================================================
-   考研错题本 · 前端风格系统 v1.7.1
+   考研错题本 · 前端风格系统 v1.7.2
    设计语言：学习工具 · 现代清爽 · 卡片式 · 六级语义色
    ============================================================ */
 
@@ -619,6 +619,22 @@ a:hover { color: var(--primary-dark); }
   overflow-x: auto;
   min-height: 30px;
 }
+
+/* 原图对照：左右两小块 */
+.orig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.orig-box {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #EEF1F7;
+  height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: 12px;
+  overflow: hidden;
+}
+.orig-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 /* ---------- 衰减中 ---------- */
 .lv.decay { opacity: .55; border: 1px dashed currentColor; }

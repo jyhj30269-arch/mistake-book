@@ -169,6 +169,23 @@ try {
   console.log("无过程诊断: " + noSolDiag);
   check("该题无过程：标记生效且队列无过程项", noSolToggle && noSolMarked && noSolQueue);
 
+  // 6.6) 自动配对：题目+过程各 1 张，不点配对也识别过程
+  await evalJS(`go("input"); resetInput(); true`);
+  await evalJS(`
+    (async () => {
+      const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+      const bin = atob(b64); const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      handleFiles([new File([arr], "aq.png", { type: "image/png" })], "q");
+      handleFiles([new File([arr], "as.png", { type: "image/png" })], "s");
+    })()
+  `);
+  await sleep(400);
+  await evalJS(`startInputOCR(); true`);
+  await sleep(2600);
+  const autoPairOk = await evalJS(`inputQueue.length === 1 && inputQueue[0].sImgId != null && !inputQueue[0].noSolution`);
+  check("题目+过程各1张不点配对也自动识别过程", autoPairOk);
+
   // 7) 复习：自由选题 / 跳过
   await evalJS(`go("dashboard"); true`);
   await sleep(500);

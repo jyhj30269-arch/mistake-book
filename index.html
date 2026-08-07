@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 考研错题本 v1.7.1 -->
+  <!-- 考研错题本 v1.7.2 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>考研错题本</title>
@@ -319,22 +319,28 @@
               <div class="split-pane">
                 <div class="pane-head">原图对照</div>
                 <div class="pane-body">
-                  <div class="small muted mb-8">📄 题目原图</div>
-                  <div class="img-placeholder" id="input-q-img-box" style="min-height:150px;">暂无题目图</div>
-                  <div class="small muted mt-8 mb-8">📝 解题过程原图</div>
-                  <div class="img-placeholder" id="input-s-img-box" style="min-height:110px;">暂无过程图（该题可无过程）</div>
+                  <div class="orig-grid">
+                    <div>
+                      <div class="small muted mb-8">📄 题目原图</div>
+                      <div class="orig-box" id="input-q-img-box">暂无题目图</div>
+                    </div>
+                    <div>
+                      <div class="small muted mb-8">📝 解题原图</div>
+                      <div class="orig-box" id="input-s-img-box">暂无过程图</div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="split-pane">
                 <div class="pane-head">识别结果（KaTeX 实时渲染）
-                  <button class="btn btn-sm" onclick="toggleTexView()">源码 / 渲染</button>
+                  <button class="btn btn-sm" id="tex-toggle-btn" onclick="toggleTexView()">✏️ 编辑源码</button>
                 </div>
                 <div class="pane-body">
-                  <div class="field"><label>题面</label><textarea class="textarea" id="input-title" rows="4" placeholder="OCR 识别结果会自动填入，可逐字修改"></textarea></div>
+                  <div class="field"><label>题面</label><textarea class="textarea" id="input-title" rows="4" placeholder="OCR 识别结果会自动填入，可逐字修改" style="display:none;"></textarea></div>
                   <div id="input-preview" class="tex-preview">渲染预览</div>
-                  <div class="field"><label>解题过程</label><textarea class="textarea" id="input-solution" rows="3"></textarea></div>
+                  <div class="field"><label>解题过程</label><textarea class="textarea" id="input-solution" rows="3" style="display:none;"></textarea></div>
                   <div id="input-solution-preview" class="tex-preview">渲染预览</div>
-                  <div class="field"><label>我的错解 / 备注（可选）</label><textarea class="textarea" id="input-wrong" rows="2"></textarea></div>
+                  <div class="field"><label>我的错解 / 备注（可选）</label><textarea class="textarea" id="input-wrong" rows="2" style="display:none;"></textarea></div>
                 </div>
               </div>
             </div>
@@ -492,7 +498,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.7.1</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.7.2</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">

@@ -1,8 +1,9 @@
 /* ============================================================
-   考研错题本 · 业务逻辑 v1.7.1
-   版本：v1.7.1（修复：粘贴区归属 / 双原图对照 / 识别结果归属 / 公式渲染预处理）
+   考研错题本 · 业务逻辑 v1.7.2
+   版本：v1.7.2（自动配对识别过程 / 默认渲染视图 / 原图区左右并排缩小）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
-   录入页双上传区 + 粘贴区记忆 + 双原图对照 + 公式渲染预览（LaTeX 预处理）/
+   题目+过程自动配对（不点配对也识别）/ 默认只显示渲染公式（源码折叠可编辑）/
+   原图对照左右并排缩小 / 公式渲染预览（LaTeX 预处理）/
    该题无过程选项 / MinerU 真实识别（服务端 mineru-open-api）/
    本地 SQLite（server.js + node:sqlite，mistake-book.db，种子数据在服务端）/
    复习自由选题（题目导航/跳过/任意切换）/
@@ -93,7 +94,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.7.1";
+const APP_VERSION = "1.7.2";
 
 const TREE = [
   {
@@ -629,10 +630,18 @@ function unpair(i) { inputPairs.splice(i, 1); renderInput(); }
 /* ---------- OCR 与逐题校对 ---------- */
 function buildQueue() {
   const qImgs = inputImgs.filter(x => x.kind === "q");
+  const sImgs = inputImgs.filter(x => x.kind === "s");
   const pairByQ = {};
   inputPairs.forEach(p => { pairByQ[p.q] = p.s; });
+  const usedS = new Set(inputPairs.map(p => p.s));
+  let si = 0;
   return qImgs.map(x => {
-    const sId = pairByQ[x.id];
+    let sId = pairByQ[x.id];
+    if (!sId && !x.noSolution) {
+      // 自动按上传顺序把解题图分给未标记「无过程」的题目（题目与过程各 1 张时自动成对）
+      while (si < sImgs.length && usedS.has(sImgs[si].id)) si++;
+      if (si < sImgs.length) { sId = sImgs[si].id; usedS.add(sId); si++; }
+    }
     return {
       qImgId: x.id,
       sImgId: sId || null,
@@ -643,6 +652,20 @@ function buildQueue() {
       noSolution: !!x.noSolution || !sId
     };
   });
+}
+
+/* 源码 / 渲染视图切换 */
+function applyTexView() {
+  const show = texView === "render" ? "none" : "";
+  const t1 = $("#input-title"), t2 = $("#input-solution"), t3 = $("#input-wrong");
+  const p1 = $("#input-preview"), p2 = $("#input-solution-preview");
+  if (t1) t1.style.display = show;
+  if (t2) t2.style.display = show;
+  if (t3) t3.style.display = show;
+  if (p1) p1.style.display = texView === "render" ? "" : "none";
+  if (p2) p2.style.display = texView === "render" ? "" : "none";
+  const btn = $("#tex-toggle-btn");
+  if (btn) btn.textContent = texView === "render" ? "✏️ 编辑源码" : "👁 只看渲染";
 }
 
 async function startInputOCR() {
@@ -679,6 +702,8 @@ async function startInputOCR() {
     renderQueue();
   }
   $("#input-ocr-btn").disabled = false;
+  texView = "render";
+  applyTexView();
   const ok = inputQueue.filter(x => x.status === "done").length;
   const bad = inputQueue.length - ok;
   $("#input-ocr-state").textContent = bad ? `识别完成（${bad} 道失败，可重试）` : "识别完成，请逐题校对";
@@ -748,9 +773,7 @@ function inputNext() { if (inputCursor < inputQueue.length - 1) { captureCurrent
 
 function toggleTexView() {
   texView = texView === "render" ? "source" : "render";
-  const p1 = $("#input-preview"), p2 = $("#input-solution-preview");
-  if (p1) p1.style.display = texView === "render" ? "" : "none";
-  if (p2) p2.style.display = texView === "render" ? "" : "none";
+  applyTexView();
   toast(texView === "render" ? "渲染视图（KaTeX）" : "源码视图");
 }
 
@@ -760,6 +783,8 @@ function switchManualInput() {
   $("#input-ocr-status").textContent = "已切换为手动输入：直接填写题面与解题过程，无需识别。";
   $("#input-ocr-btn").disabled = false;
   $("#input-ocr-progress-wrap").style.display = "none";
+  texView = "source";
+  applyTexView();
   if (!inputQueue.length && inputImgs.length) {
     inputQueue = buildQueue().map(it => ({ ...it, status: "done" }));
     inputCursor = 0;
@@ -777,6 +802,8 @@ function resetInput() {
   renderTexPreview($("#input-preview"), "");
   renderTexPreview($("#input-solution-preview"), "");
   window.__pasteKind = "q";
+  texView = "render";
+  applyTexView();
   inputTags.clear();
   $$("#input-tags .chip").forEach(c => c.classList.remove("on"));
   inputImgs = [];
@@ -2149,6 +2176,7 @@ function doResetDemo() {
 (async () => {
   const ok = await loadLocal();
   if (!ok) { seed(); persistLocal(); }
+  applyTexView();
   setInterval(studyTick, 1000);
   $$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => { if (a.dataset.view) go(a.dataset.view); }));
   document.addEventListener("click", e => {
