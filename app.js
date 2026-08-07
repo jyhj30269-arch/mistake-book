@@ -1,9 +1,10 @@
 /* ============================================================
-   考研错题本 · 业务逻辑 v1.4.0
-   版本：v1.4.0（缺陷修复包：真实导入 / 复习续传 / 真实时长 / 题目编辑 / 知识点管理 / 提醒 / 手动录入）
+   考研错题本 · 业务逻辑 v1.5.0
+   版本：v1.5.0（复习自由选题/跳过 + 设置简化 + MinerU 可配置接入）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
-   真实 JSON 导入（合并/覆盖+ID 重映射）/ 复习断点续传 / 按天学习时长 /
-   题目编辑 / 知识点增删改 / 复习提醒 / OCR 转手动入口 /
+   复习自由选题（题目导航/跳过/任意切换）/
+   设置简化（新增科目/统一弹窗/加分支示例）/ MinerU 真实识别（可配置+连通性测试）/
+   真实 JSON 导入 / 复习断点续传 / 按天学习时长 / 题目编辑 / 知识点增删改 /
    分层优先+加权随机抽题 / 四档自评 /
    六级掌握度+时间衰减 / 7 天去重窗口 / 多知识点 / 笔记标记 / 今日推荐 /
    导入导出预检 / 学习时长 / 统计图表
@@ -89,7 +90,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.5.0";
 
 const TREE = [
   {
@@ -1215,6 +1216,8 @@ function doDelete(id) {
 let reviewCfg = { sub: "all", chapter: "", lv: "all", num: 3 };
 let reviewQueue = [];
 let reviewIdx = 0;
+let reviewDone = new Set();    // 已自评的题号（队列下标）
+let reviewSkipped = new Set(); // 跳过的题号
 let reviewStartedAt = 0;
 let reviewResults = [];
 
@@ -1278,6 +1281,8 @@ function continueResume() {
   reviewQueue = pool;
   reviewIdx = Math.min(r.idx, pool.length);
   reviewResults = [];
+  reviewDone = new Set(r.done || []);
+  reviewSkipped = new Set(r.skipped || []);
   reviewStartedAt = Date.now();
   localStorage.removeItem("review-resume");
   renderResumeButton();
@@ -1350,6 +1355,8 @@ function startReviewWith(n, presetList) {
   reviewQueue = picked;
   reviewIdx = 0;
   reviewResults = [];
+  reviewDone = new Set();
+  reviewSkipped = new Set();
   reviewStartedAt = Date.now();
   $("#review-config").style.display = "none";
   $("#review-done").style.display = "none";
@@ -1369,7 +1376,8 @@ function showReviewCard() {
   const q = reviewQueue[reviewIdx];
   const m = displayMastery(q.id);
   $("#rev-card-top").innerHTML = `${lvTag(m.lv, m.decay)}<span class="small muted">${m.pause ? "保持（半对/卡住，不升降级）" : `连续 ${m.lv.key === "blue" ? "对" : "错"} ${m.streak} 次`}${q.urgent ? " · ⏫ 做错加急 ×2" : ""}</span>`;
-  $("#rev-progress").textContent = `${reviewIdx + 1} / ${reviewQueue.length}`;
+  $("#rev-progress").textContent = `已做 ${reviewDone.size} / 共 ${reviewQueue.length}`;
+  renderRevNav();
   $("#rev-question").innerHTML = "";
   renderTex($("#rev-question"), q.titleTex, true);
   $("#rev-answer").style.display = "none";
@@ -1379,6 +1387,42 @@ function showReviewCard() {
   window.__curQ = q;
   window.__curM = m;
   renderMath($("#rev-question"));
+}
+
+/* 题目导航：点击任意未做题号自由切换 */
+function renderRevNav() {
+  const box = $("#rev-nav");
+  if (!box) return;
+  box.innerHTML = reviewQueue.map((q, i) => {
+    const state = reviewDone.has(i) ? "done" : reviewSkipped.has(i) ? "skipped" : i === reviewIdx ? "now" : "todo";
+    const label = reviewDone.has(i) ? `✓ ${i + 1}` : reviewSkipped.has(i) ? `⏭ ${i + 1}` : `${i + 1}`;
+    return `<span class="chip rev-nav-item ${state}" onclick="jumpTo(${i})">${label}</span>`;
+  }).join("");
+}
+
+function jumpTo(i) {
+  if (i < 0 || i >= reviewQueue.length) return;
+  if (reviewDone.has(i)) { toast("这道题已完成自评", "error"); return; }
+  reviewIdx = i;
+  showReviewCard();
+}
+
+function skipCurrent() {
+  if (!reviewQueue.length || reviewDone.has(reviewIdx)) return;
+  reviewSkipped.add(reviewIdx);
+  toast("已跳过此题，可随时点题号回来做");
+  autoNext();
+}
+
+function autoNext() {
+  // 优先未做且未跳过的；没有则优先未做（含跳过的）；再没有就完成
+  for (let i = 0; i < reviewQueue.length; i++) {
+    if (!reviewDone.has(i) && !reviewSkipped.has(i)) { reviewIdx = i; showReviewCard(); return; }
+  }
+  for (let i = 0; i < reviewQueue.length; i++) {
+    if (!reviewDone.has(i)) { reviewIdx = i; showReviewCard(); return; }
+  }
+  showReviewDone();
 }
 
 function revealAnswer() {
@@ -1408,8 +1452,8 @@ function selfRate(result) {
     fail: `❌ 做错加急 ⏫，→ ${m.lv.icon} ${m.lv.name}（红色闪烁提示）`
   };
   toast(msgs[result], result === "fail" ? "error" : "success");
-  reviewIdx++;
-  showReviewCard();
+  reviewDone.add(reviewIdx);
+  autoNext();
 }
 
 function reviewExit() {
@@ -1417,7 +1461,13 @@ function reviewExit() {
     <div class="small muted">已做 ${reviewResults.length} / ${reviewQueue.length} 题，进度存 localStorage（断点续传）。</div>`,
     `<button class="btn" onclick="closeModal();go('dashboard')">知道了</button>`
   );
-  localStorage.setItem("review-resume", JSON.stringify({ queue: reviewQueue.map(q => q.id), idx: reviewIdx, results: reviewResults }));
+  localStorage.setItem("review-resume", JSON.stringify({
+    queue: reviewQueue.map(q => q.id),
+    idx: reviewIdx,
+    done: Array.from(reviewDone),
+    skipped: Array.from(reviewSkipped),
+    results: reviewResults
+  }));
 }
 
 function showReviewDone() {
@@ -1429,10 +1479,11 @@ function showReviewDone() {
   const half = reviewResults.filter(r => r.result === "half").length;
   const stuck = reviewResults.filter(r => r.result === "stuck").length;
   const fail = reviewResults.filter(r => r.result === "fail").length;
+  const skipped = reviewSkipped.size;
   $("#rev-done-stats").innerHTML = `
-    <div class="stat-card"><div class="stat-label">抽题</div><div class="stat-value">${reviewResults.length}</div></div>
+    <div class="stat-card"><div class="stat-label">抽题 / 完成</div><div class="stat-value">${reviewQueue.length} / ${reviewResults.length}</div></div>
     <div class="stat-card"><div class="stat-label">✅ 做对</div><div class="stat-value" style="color:var(--success);">${ok}</div></div>
-    <div class="stat-card"><div class="stat-label">❌ 做错</div><div class="stat-value" style="color:var(--danger);">${fail}</div></div>`;
+    <div class="stat-card"><div class="stat-label">⏭ 跳过</div><div class="stat-value" style="color:var(--text-3);">${skipped}</div></div>`;
   $("#rev-done-list").innerHTML = reviewResults.map(r => {
     const after = displayMastery(r.q.id);
     const arrow = r.before.lv.key === after.lv.key ? "→" : "→";
@@ -1443,6 +1494,12 @@ function showReviewDone() {
     </div>`;
   }).join("");
   renderMath($("#rev-done-list"));
+  if (skipped) {
+    const warn = document.createElement("div");
+    warn.className = "alert alert-warn";
+    warn.innerHTML = `已跳过 ${skipped} 道题：${Array.from(reviewSkipped).map(i => `第 ${i + 1} 题`).join("、")}。可「再来一轮」重抽，或回题库单独重做。`;
+    $("#rev-done-list").prepend(warn);
+  }
 }
 
 /* ---------------- 统计 ---------------- */
@@ -1556,47 +1613,108 @@ function renderSettings() {
   $$("#rev-num-default .chip").forEach(x => x.classList.toggle("on", x.dataset.v === String(reviewCfg.num)));
   const vEl = $("#app-version");
   if (vEl) vEl.textContent = "v" + APP_VERSION;
+  loadOcrConfig();
   const box = $("#settings-tree");
-  box.innerHTML = TREE.map(s => `
+  box.innerHTML = `
+    <div class="flex-between mb-16" style="gap:12px;">
+      <span class="small muted">层级：科目 → 子科目 → 章节 → 知识点。新增示例：点「数学」的＋加子科目（如已有高等数学则跳过）→ 点「高等数学」的＋加章节，名称填「无穷级数」→ 点该章节的＋加知识点。</span>
+      <button class="btn btn-sm btn-primary" onclick="addSubject()">＋ 新增科目</button>
+    </div>` +
+    TREE.map(s => `
     <div class="flex-between" style="padding:5px 8px;">
       <b>${esc(s.name)}</b>
       <div class="flex">
-        <button class="btn btn-sm" onclick="addNode('${s.id}')">＋子</button>
+        <button class="btn btn-sm" onclick="addNode('${s.id}')">＋加子科目</button>
         <button class="btn btn-sm" onclick="renameNode('${s.id}')">改</button>
         <button class="btn btn-sm btn-danger" onclick="delNode('${s.id}')">删</button>
       </div>
     </div>
     <div class="tree-children">
-      ${s.children.map(c => `
+      ${s.children.map(ss => `
         <div class="flex-between" style="padding:4px 8px;">
-          <span>∟ ${esc(c.name)}</span>
+          <span>∟ ${esc(ss.name)}</span>
           <div class="flex">
-            <button class="btn btn-sm" onclick="addNode('${c.id}')">＋章</button>
-            <button class="btn btn-sm" onclick="renameNode('${c.id}')">改</button>
-            <button class="btn btn-sm btn-danger" onclick="delNode('${c.id}')">删</button>
+            <button class="btn btn-sm" onclick="addNode('${ss.id}')">＋加章节</button>
+            <button class="btn btn-sm" onclick="renameNode('${ss.id}')">改</button>
+            <button class="btn btn-sm btn-danger" onclick="delNode('${ss.id}')">删</button>
           </div>
         </div>
         <div class="tree-children">
-          <div class="flex-between" style="padding:3px 8px;">
-            <span>∟ ${esc(c.name)} · 知识点</span>
-            <div class="flex">
-              <button class="btn btn-sm" onclick="addKp('${c.id}')">＋知识点</button>
-              <button class="btn btn-sm" onclick="renameNode('${c.id}')">改</button>
-              <button class="btn btn-sm btn-danger" onclick="delNode('${c.id}')">删</button>
+          ${ss.children.map(ch => `
+            <div class="flex-between" style="padding:3px 8px;">
+              <span>∟ ${esc(ch.name)}</span>
+              <div class="flex">
+                <button class="btn btn-sm" onclick="addKp('${ch.id}')">＋加知识点</button>
+                <button class="btn btn-sm" onclick="renameNode('${ch.id}')">改</button>
+                <button class="btn btn-sm btn-danger" onclick="delNode('${ch.id}')">删</button>
+              </div>
             </div>
-          </div>
-          ${c.children.map(k => `<div class="flex-between" style="padding:3px 8px 3px 22px;">
-            <span>∟ ${esc(k)}</span>
-            <button class="btn btn-sm btn-danger" data-ch="${c.id}" data-k="${esc(k)}" onclick="askDelKp(this)">删</button>
-          </div>`).join("")}
+            <div class="tree-children">
+              ${ch.children.map(k => `<div class="flex-between" style="padding:3px 8px 3px 16px;">
+                <span>∟ ${esc(k)}</span>
+                <button class="btn btn-sm btn-danger" data-ch="${ch.id}" data-k="${esc(k)}" onclick="askDelKp(this)">删</button>
+              </div>`).join("")}
+            </div>`).join("")}
         </div>`).join("")}
     </div>`).join("");
 }
 
+/* OCR 服务配置（模拟 / MinerU 真实识别） */
+function loadOcrConfig() {
+  const cfg = API.mineruConfig();
+  const eng = $("#ocr-engine"); if (eng) eng.value = cfg.engine || "mock";
+  const tok = $("#ocr-token"); if (tok) tok.value = cfg.token || "";
+  const base = $("#ocr-base"); if (base) base.value = cfg.base || "https://api.mineru.net";
+  const tag = $("#ocr-mode-tag");
+  if (tag) tag.textContent = cfg.engine === "mineru" && cfg.token ? "引擎：MinerU（真实）" : "引擎：模拟";
+}
+function saveOcrConfig() {
+  const cfg = {
+    engine: $("#ocr-engine").value,
+    token: $("#ocr-token").value.trim(),
+    base: $("#ocr-base").value.trim() || "https://api.mineru.net"
+  };
+  localStorage.setItem("mb-mineru-config", JSON.stringify(cfg));
+  const tag = $("#ocr-mode-tag");
+  if (tag) tag.textContent = cfg.engine === "mineru" && cfg.token ? "引擎：MinerU（真实）" : "引擎：模拟";
+  toast("OCR 配置已保存");
+  testOcrConnection();
+}
+async function testOcrConnection() {
+  const cfg = API.mineruConfig();
+  if (cfg.engine !== "mineru" || !cfg.token) { toast("当前为模拟模式，未测试真实识别", "error"); return; }
+  toast("正在测试 MinerU 连通性…");
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 640; canvas.height = 200;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, 640, 200);
+    ctx.fillStyle = "#000"; ctx.font = "36px sans-serif";
+    ctx.fillText("Test 123 + x^2", 40, 110);
+    const t0 = Date.now();
+    const r = await API.ocrRecognize({ dataUrl: canvas.toDataURL("image/png"), name: "test.png" }, { isSolution: false });
+    const cost = r.costSec || Math.round((Date.now() - t0) / 1000);
+    openModal("MinerU 连通性测试通过", `
+      <div class="small" style="line-height:2;">
+        耗时：<b>${cost} 秒</b><br />
+        识别来源：${r.source}<br />
+        识别文本：<span class="mono">${esc((r.titleTex || "").slice(0, 80))}</span>
+      </div>`,
+      `<button class="btn btn-primary" onclick="closeModal()">知道了</button>`
+    );
+  } catch (e) {
+    openModal("MinerU 测试失败", `
+      <div class="alert alert-danger">${esc(e.message)}</div>
+      <div class="small muted">请检查 Token / API 地址，或把上面的错误信息发给开发者调整接口。</div>`,
+      `<button class="btn btn-primary" onclick="closeModal()">知道了</button>`
+    );
+  }
+}
+
 function addNode(parentId) {
   const isSubject = TREE.some(s => s.id === parentId);
-  openModal(isSubject ? "新增子科目" : "新增章节/知识点", `
-    <div class="field"><label>名称</label><input class="input" id="new-node-name" placeholder="${isSubject ? "如：数学三 / 英语二" : "如：第 4 章 多元函数微分学"}" /></div>
+  openModal(isSubject ? "新增子科目" : "新增章节", `
+    <div class="field"><label>名称</label><input class="input" id="new-node-name" placeholder="${isSubject ? "如：数学三 / 英语二" : "如：无穷级数"}" /></div>
     <div class="small muted">科目/子科目完全自定义，不写死（支持 数学一/二/三、英语一/二等）</div>`,
     `<button class="btn" onclick="closeModal()">取消</button>
      <button class="btn btn-primary" onclick="doAddNode('${parentId}')">添加</button>`
@@ -1617,15 +1735,36 @@ function doAddNode(parentId) {
   toast("节点已添加（支持完全自定义）", "success");
 }
 
+function addSubject() {
+  openModal("新增科目", `
+    <div class="field"><label>科目名称</label><input class="input" id="new-node-name" placeholder="如：数学 / 英语 / 408" /></div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="doAddSubject()">添加</button>`
+  );
+}
+function doAddSubject() {
+  const name = $("#new-node-name").value.trim();
+  if (!name) return;
+  if (TREE.some(s => s.name === name)) { toast("该科目已存在", "error"); return; }
+  TREE.push({ id: "subj-" + Date.now(), name, children: [] });
+  persistLocal(); closeModal(); renderSettings();
+  toast("科目已添加", "success");
+}
+
 function addKp(chapterId) {
+  openModal("新增知识点", `
+    <div class="field"><label>知识点名称</label><input class="input" id="new-node-name" placeholder="如：无穷级数敛散性判断" /></div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="doAddKp('${chapterId}')">添加</button>`
+  );
+}
+function doAddKp(chapterId) {
   const ch = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === chapterId);
-  if (!ch) return;
-  const name = prompt("知识点名称：");
-  if (!name || !name.trim()) return;
-  if (ch.children.includes(name.trim())) { toast("该知识点已存在", "error"); return; }
-  ch.children.push(name.trim());
-  persistLocal();
-  renderSettings();
+  const name = $("#new-node-name").value.trim();
+  if (!ch || !name) return;
+  if (ch.children.includes(name)) { toast("该知识点已存在", "error"); return; }
+  ch.children.push(name);
+  persistLocal(); closeModal(); renderSettings();
   toast("知识点已添加", "success");
 }
 
@@ -1656,13 +1795,24 @@ function renameNode(id) {
   if (!target) target = TREE.flatMap(s => s.children).find(c => c.id === id);
   if (!target) target = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === id);
   if (!target) return;
-  const name = prompt("新名称：", target.name);
-  if (name && name.trim()) {
-    target.name = name.trim();
-    persistLocal();
-    renderSettings();
-    toast("已重命名", "success");
-  }
+  window.__renameId = id;
+  openModal("重命名", `
+    <div class="field"><label>新名称</label><input class="input" id="new-node-name" value="${esc(target.name)}" /></div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="doRenameNode()">保存</button>`
+  );
+}
+function doRenameNode() {
+  const id = window.__renameId;
+  const name = $("#new-node-name").value.trim();
+  if (!name) return;
+  let target = TREE.find(s => s.id === id);
+  if (!target) target = TREE.flatMap(s => s.children).find(c => c.id === id);
+  if (!target) target = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === id);
+  if (!target) return;
+  target.name = name;
+  persistLocal(); closeModal(); renderSettings();
+  toast("已重命名", "success");
 }
 
 function delNode(id) {
@@ -2006,6 +2156,8 @@ window.startReview = startReview;
 window.startReviewFromRec = startReviewFromRec;
 window.revealAnswer = revealAnswer;
 window.selfRate = selfRate;
+window.jumpTo = jumpTo;
+window.skipCurrent = skipCurrent;
 window.reviewExit = reviewExit;
 window.selectDefaultNum = selectDefaultNum;
 window.toggleRemind = toggleRemind;
@@ -2031,14 +2183,21 @@ window.editFillKps = editFillKps;
 window.toggleEditKp = toggleEditKp;
 window.toggleEditTag = toggleEditTag;
 window.saveEditQuestion = saveEditQuestion;
+window.addSubject = addSubject;
+window.doAddSubject = doAddSubject;
 window.addKp = addKp;
+window.doAddKp = doAddKp;
 window.askDelKp = askDelKp;
 window.doDelKp = doDelKp;
 window.renameNode = renameNode;
+window.doRenameNode = doRenameNode;
 window.doDelSubject = doDelSubject;
 window.doDelSubSubject = doDelSubSubject;
 window.doDelChapterById = doDelChapterById;
 window.switchManualInput = switchManualInput;
+window.loadOcrConfig = loadOcrConfig;
+window.saveOcrConfig = saveOcrConfig;
+window.testOcrConnection = testOcrConnection;
 window.closeModal = closeModal;
 window.showReviewDone = showReviewDone;
 

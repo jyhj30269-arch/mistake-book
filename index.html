@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 考研错题本 v1.4.0 -->
+  <!-- 考研错题本 v1.5.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>考研错题本</title>
@@ -175,9 +175,16 @@
           </div>
 
               <div class="card review-card mt-16" id="review-play" style="display:none;">
-                <div class="flex-between">
+                <div class="flex-between mb-16">
                   <div id="rev-card-top"></div>
-                  <span class="tag" id="rev-progress">0 / 0</span>
+                  <div class="flex">
+                    <span class="tag" id="rev-progress">0 / 0</span>
+                  </div>
+                </div>
+                <div class="flex" id="rev-nav" style="flex-wrap:wrap;gap:6px;"></div>
+                <div class="flex-between mt-16">
+                  <button class="btn btn-sm" onclick="skipCurrent()">⏭ 跳过此题</button>
+                  <span class="small muted">点上方题号可自由选择做哪一道</span>
                 </div>
                 <div class="review-q mt-16" id="rev-question"></div>
                 <button class="btn btn-lg mt-16" onclick="revealAnswer()" id="rev-show-ans">显示答案</button>
@@ -465,7 +472,7 @@
               前端 API 接口（<span class="mono">api.js</span>）已预留，后端完成后切换为 remote 模式即可，业务代码无需改动。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.4.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.5.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
@@ -473,6 +480,31 @@
               <button class="btn" onclick="document.getElementById('import-file').click()">⬆ 导入 JSON</button>
               <input type="file" id="import-file" accept="application/json,.json" style="display:none;" onchange="handleImportFile(this.files)" />
               <button class="btn btn-danger" onclick="resetDemoData()">重置演示数据</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><div class="card-title">OCR 服务</div><span class="tag tag-primary" id="ocr-mode-tag">引擎：模拟</span></div>
+            <div class="grid grid-2">
+              <div class="field">
+                <label>识别引擎</label>
+                <select class="select" id="ocr-engine">
+                  <option value="mock">模拟（本机测试，无需配置）</option>
+                  <option value="mineru">MinerU（真实识别）</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>MinerU Token</label>
+                <input class="input" id="ocr-token" type="password" placeholder="在 mineru.net 控制台获取" />
+              </div>
+            </div>
+            <div class="field">
+              <label>API 地址</label>
+              <input class="input" id="ocr-base" placeholder="https://api.mineru.net" />
+            </div>
+            <div class="flex">
+              <button class="btn btn-primary" onclick="saveOcrConfig()">保存并测试连通性</button>
+              <span class="small muted">数据仍存本机；识别由 MinerU 云端完成，测试会记录耗时。</span>
             </div>
           </div>
 

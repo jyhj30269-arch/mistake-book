@@ -67,13 +67,13 @@ try {
   check("移动 Tab 只剩 4 项", nav.tabItems.length === 4 && nav.tabItems.join().includes("设置"));
 
   // 2) 复习续传按钮
-  await evalJS(`localStorage.setItem("review-resume", JSON.stringify({ queue: [1,2,3], idx: 1, results: [] })); renderResumeButton(); true`);
-  const resumeShown = await evalJS(`document.getElementById("review-resume-btn").style.display !== "none" && document.getElementById("review-resume-btn").textContent.includes("1 / 3")`);
-  check("续传按钮显示「已做 1 / 3」", resumeShown);
+  await evalJS(`localStorage.setItem("review-resume", JSON.stringify({ queue: [1,2,3], idx: 2, done: [0,1], skipped: [], results: [] })); renderResumeButton(); true`);
+  const resumeShown = await evalJS(`document.getElementById("review-resume-btn").style.display !== "none" && document.getElementById("review-resume-btn").textContent.includes("已做 2 / 3")`);
+  check("续传按钮显示「已做 2 / 3」", resumeShown);
   await evalJS(`continueResume(); true`);
   await sleep(400);
-  const resumed = await evalJS(`getComputedStyle(document.getElementById("review-play")).display !== "none" && document.getElementById("rev-progress").textContent === "2 / 3"`);
-  check("继续上次后进入做题（2/3）", resumed);
+  const resumed = await evalJS(`getComputedStyle(document.getElementById("review-play")).display !== "none" && document.getElementById("rev-progress").textContent === "已做 2 / 共 3"`);
+  check("继续上次后进入做题（已做 2/3）", resumed);
   await evalJS(`go("dashboard"); true`);
 
   // 3) 真实导入预检
@@ -114,7 +114,7 @@ try {
   await evalJS(`go("settings"); true`);
   await sleep(400);
   const settings = await evalJS(`(() => ({
-    hasAddKp: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.includes("＋知识点")),
+    hasAddKp: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.includes("＋加知识点")),
     hasRename: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.trim() === "改"),
     hasKpDel: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.dataset.ch && b.textContent.trim() === "删")
   }))()`);
@@ -134,6 +134,47 @@ try {
   await evalJS(`switchManualInput(); true`);
   const manual = await evalJS(`document.getElementById("input-ocr-state").textContent.includes("手动输入") && document.getElementById("input-title") === document.activeElement`);
   check("转手动输入生效且聚焦题面", manual);
+
+  // 7) 复习：自由选题 / 跳过
+  await evalJS(`go("dashboard"); true`);
+  await sleep(500);
+  await evalJS(`startReview(); true`);
+  await sleep(400);
+  const navCount = await evalJS(`document.querySelectorAll("#rev-nav .rev-nav-item").length`);
+  check("抽题后题号导航 3 个", navCount === 3);
+  await evalJS(`skipCurrent(); true`);
+  await sleep(300);
+  const afterSkip = await evalJS(`document.getElementById("rev-progress").textContent + "|" + document.querySelector("#rev-nav .rev-nav-item.now").textContent`);
+  check("跳过第1题后切到第2题", afterSkip.includes("已做 0 / 共 3") && afterSkip.endsWith("2"));
+  await evalJS(`jumpTo(2); true`);
+  await sleep(300);
+  const jumped = await evalJS(`document.querySelector("#rev-nav .rev-nav-item.now").textContent.trim() === "3"`);
+  check("点题号跳到第3题", jumped);
+  await evalJS(`selfRate('ok'); true`);
+  await sleep(300);
+  await evalJS(`selfRate('ok'); true`);
+  await sleep(300);
+  await evalJS(`selfRate('ok'); true`);
+  await sleep(400);
+  const done = await evalJS(`getComputedStyle(document.getElementById("review-done")).display !== "none" && document.getElementById("rev-done-stats").innerText.includes("3 / 3")`);
+  check("跳过后可回来做，完成小结 3/3", done);
+
+  // 8) 设置：简化按钮 + OCR 配置
+  await evalJS(`go("settings"); true`);
+  await sleep(400);
+  const settings2 = await evalJS(`(() => ({
+    addSubject: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.includes("新增科目")),
+    addSub: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.includes("＋加子科目")),
+    addCh: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.includes("＋加章节")),
+    addKp: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.includes("＋加知识点")),
+    hasRename: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.trim() === "改"),
+    hasKpDel: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.dataset.ch && b.textContent.trim() === "删"),
+    ocrCard: !!document.getElementById("ocr-engine") && !!document.getElementById("ocr-token") && !!document.getElementById("ocr-base"),
+    ocrTag: document.getElementById("ocr-mode-tag").textContent
+  }))()`);
+  console.log("设置页按钮详情: " + JSON.stringify(settings2));
+  check("设置：新增科目/＋加子科目/＋加章节/＋加知识点齐全", settings2.addSubject && settings2.addSub && settings2.addCh && settings2.addKp);
+  check("设置：OCR 服务配置卡片存在且默认模拟", settings2.ocrCard && settings2.ocrTag.includes("模拟"));
 
   ws.close();
 } catch (e) {

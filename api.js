@@ -71,6 +71,12 @@
 
     /* ================= OCR 识别 ================= */
 
+    /** 读取 MinerU 配置（localStorage，前端仅存 token 供本地测试；生产环境请放后端） */
+    mineruConfig() {
+      try { return JSON.parse(localStorage.getItem("mb-mineru-config")) || {}; }
+      catch (e) { return {}; }
+    },
+
     /**
      * 提交一张图片做 OCR。
      * @param {Object} image  { dataUrl, name, size }（本地） / File（远端 multipart）
@@ -89,6 +95,11 @@
         if (!res.ok) throw new Error(`OCR 提交失败 ${res.status}`);
         return res.json();
       }
+      // 本地真实识别：配置了 MinerU 则走真实 API，否则用模拟
+      const cfg = this.mineruConfig();
+      if (cfg.engine === "mineru" && cfg.token) {
+        return this.ocrRecognizeMineru(image, opts);
+      }
       // 本地模拟：1~2 秒返回示例 LaTeX（低置信度字符黄色高亮）
       await delay(900 + Math.random() * 900);
       const isSolution = !!opts.isSolution;
@@ -103,6 +114,106 @@
         lowConf: isSolution ? [] : [{ from: 18, to: 22 }],
         source: "mock"
       };
+    },
+
+    /**
+     * MinerU 真实识别（v4 流程：申请上传链接 → PUT 图片 → 建任务 → 轮询 → 提取文本）
+     * 接口细节以实测为准；若返回格式不同，错误信息里会带原始 JSON。
+     */
+    async ocrRecognizeMineru(image, opts = {}) {
+      const cfg = this.mineruConfig();
+      const base = (cfg.base || "https://api.mineru.net").replace(/\/$/, "");
+      const auth = { Authorization: `Bearer ${cfg.token}` };
+      const t0 = Date.now();
+
+      // 1) 申请上传链接
+      const upRes = await fetch(`${base}/api/v4/file-urls/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...auth },
+        body: JSON.stringify({ files: [{ name: image.name || "question.png" }] })
+      });
+      const upJson = await upRes.json().catch(() => null);
+      if (!upRes.ok) throw new Error(`MinerU 申请上传链接失败（${upRes.status}）：${JSON.stringify(upJson)?.slice(0, 300)}`);
+      const first = (upJson?.data?.[0]) || (upJson?.data?.files?.[0]) || upJson?.[0] || upJson?.files?.[0] || null;
+      const uploadUrl = first?.upload_url || first?.put_url || first?.uploadUrl || null;
+      const fileUrl = first?.file_url || first?.url || first?.fileUrl || null;
+      if (!uploadUrl || !fileUrl) {
+        throw new Error("MinerU 上传接口返回格式与预期不符，请把这段 JSON 发给开发者：" + JSON.stringify(upJson).slice(0, 300));
+      }
+
+      // 2) PUT 图片内容
+      const blob = this.dataUrlToBlob(image.dataUrl);
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": blob.type || "image/png" },
+        body: blob
+      });
+      if (putRes.status !== 200 && putRes.status !== 201 && putRes.status !== 204) {
+        throw new Error(`MinerU 上传文件失败（${putRes.status}）`);
+      }
+
+      // 3) 创建识别任务
+      const taskRes = await fetch(`${base}/api/v4/extract/task`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...auth },
+        body: JSON.stringify({ url: fileUrl, enable_formula: true })
+      });
+      const taskJson = await taskRes.json().catch(() => null);
+      if (!taskRes.ok) throw new Error(`MinerU 创建任务失败（${taskRes.status}）：${JSON.stringify(taskJson)?.slice(0, 300)}`);
+      const taskId = taskJson?.data?.task_id || taskJson?.task_id || taskJson?.data?.batch_id || null;
+      if (!taskId) throw new Error("MinerU 任务返回格式与预期不符：" + JSON.stringify(taskJson).slice(0, 300));
+
+      // 4) 轮询任务结果（最多 120 秒）
+      let result = null;
+      for (let i = 0; i < 40; i++) {
+        await delay(3000);
+        const qRes = await fetch(`${base}/api/v4/extract/task/${taskId}`, { headers: { ...auth } });
+        const qJson = await qRes.json().catch(() => null);
+        if (!qRes.ok) throw new Error(`MinerU 查询任务失败（${qRes.status}）：${JSON.stringify(qJson)?.slice(0, 300)}`);
+        const st = qJson?.data?.state || qJson?.state || qJson?.data?.status || "";
+        if (["done", "succeeded", "finished", "complete"].includes(st)) { result = qJson; break; }
+        if (["failed", "error", "canceled"].includes(st)) {
+          throw new Error("MinerU 识别失败：" + JSON.stringify(qJson).slice(0, 300));
+        }
+      }
+      if (!result) throw new Error("MinerU 任务超时（>120 秒），请稍后重试或改用手动输入");
+
+      // 5) 提取文本（兼容多种返回形态）
+      const text = await this.extractMineruText(result);
+      if (!text) throw new Error("MinerU 已完成但未提取到文本：" + JSON.stringify(result).slice(0, 300));
+      const cost = Math.round((Date.now() - t0) / 1000);
+      return {
+        taskId,
+        titleTex: opts.isSolution ? "" : text,
+        solutionTex: opts.isSolution ? text : "",
+        lowConf: [],
+        source: "mineru",
+        costSec: cost
+      };
+    },
+
+    dataUrlToBlob(dataUrl) {
+      const [head, body] = String(dataUrl || "").split(",");
+      const mime = (head.match(/data:([^;]+)/) || [])[1] || "image/png";
+      const bin = atob(body || "");
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      return new Blob([arr], { type: mime });
+    },
+
+    async extractMineruText(result) {
+      const d = result?.data || result || {};
+      if (typeof d.extract_result === "string" && d.extract_result) return d.extract_result;
+      if (typeof d.markdown === "string" && d.markdown) return d.markdown;
+      if (typeof d.full_markdown === "string" && d.full_markdown) return d.full_markdown;
+      if (typeof d.text === "string" && d.text) return d.text;
+      const files = d.files || d.file_list || d.result_files || [];
+      const md = files.find(f => /\.md$/i.test(f.file_name || f.name || "") || /markdown/i.test(f.file_name || f.name || ""));
+      if (md && (md.url || md.download_url)) {
+        const res = await fetch(md.url || md.download_url);
+        if (res.ok) return await res.text();
+      }
+      return null;
     },
 
     /**

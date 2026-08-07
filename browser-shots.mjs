@@ -71,6 +71,12 @@ try {
   const revShot = await call("Page.captureScreenshot");
   writeFileSync(OUT + which + "-review-view.png", Buffer.from(revShot.data, "base64"));
 
+  // 点击开始复习 → 做题界面（题号导航 + 跳过按钮）
+  await evalJS(`document.querySelector("#review-config .btn-primary").click(); true`);
+  await sleep(900);
+  const playShot = await call("Page.captureScreenshot");
+  writeFileSync(OUT + which + "-review-play.png", Buffer.from(playShot.data, "base64"));
+
   // 滚动到统计区
   await evalJS(`document.getElementById("dash-stats").scrollIntoView({block:"start"}); true`);
   await sleep(1200);
