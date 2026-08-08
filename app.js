@@ -1,6 +1,6 @@
 /* ============================================================
-   个人工作台 · 业务逻辑 v1.13.0
-   版本：v1.13.0（热点资讯 AI HOT + PDF 导出试卷 + 复习科目筛选 + 收藏夹 + 仪表盘重排）
+   个人工作台 · 业务逻辑 v1.13.1
+   版本：v1.13.1（修复：快速添加周几日期/吞字、AI 日报、移动端入口、备份个人数据、重置、上传白名单等）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
    仪表盘总览（问候/概览卡/快捷入口/目标进度/今日待办/最近动态）/
    今日待办（子任务/优先级/标签/提醒/列表看板/快速添加解析）/
@@ -106,7 +106,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.13.0";
+const APP_VERSION = "1.13.1";
 
 const TREE = [
   {
@@ -325,6 +325,17 @@ function goDashSection(sec) {
     const el = document.getElementById("dash-" + sec);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, 100);
+}
+
+/* 移动端底部「更多」抽屉 */
+function toggleMobileMenu() {
+  const menu = $("#mobile-menu");
+  if (!menu) return;
+  menu.style.display = menu.style.display === "none" ? "block" : "none";
+}
+function hideMobileMenu() {
+  const menu = $("#mobile-menu");
+  if (menu) menu.style.display = "none";
 }
 
 let loginMode = "login";
@@ -1747,12 +1758,13 @@ function toggleRemind() {
   el.style.background = remindOn ? "var(--success-light)" : "#F1F3F7";
   el.style.color = remindOn ? "var(--success)" : "var(--text-3)";
   persistLocal();
-  toast(remindOn ? "后台推送提醒已开启（Notification API + SW）" : "提醒已关闭");
+  toast(remindOn ? "打开应用时提醒已开启" : "提醒已关闭");
 }
 function demoNotify() {
   if ("Notification" in window) {
     if (Notification.permission !== "granted") Notification.requestPermission();
-    if (Notification.permission === "granted") new Notification("个人工作台", { body: "今天该复习错题了，当前共有 X 道未掌握题目" });
+    const unmastered = questions.length - questions.filter(q => displayMastery(q.id).lv.key === "blue").length;
+    if (Notification.permission === "granted") new Notification("个人工作台", { body: `今天该复习错题了，当前共有 ${unmastered} 道未掌握题目` });
   }
   toast("演示通知（浏览器可能要求授权）");
 }
@@ -2046,14 +2058,26 @@ function exportJSON() {
   const data = {
     schema_version: 1,
     exported_at: new Date().toISOString(),
-    questions, reviewLogs, tree: TREE
+    questions,
+    reviewLogs,
+    tree: TREE,
+    study: { seconds: study.seconds, blurPrompt: study.blurPrompt, perDay: study.perDay },
+    remindOn,
+    reviewCfg: { ...reviewCfg },
+    personal: {
+      todos: personal.todos,
+      goals: personal.goals,
+      reviews: personal.reviews,
+      inbox: personal.inbox,
+      bookmarks: personal.bookmarks
+    }
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `mistake-book-backup-${fmtDate(Date.now())}.json`;
   a.click();
-  toast("JSON 已导出（含全部业务数据与复习记录）", "success");
+  toast("JSON 已导出（含题库、个人数据与复习记录）", "success");
 }
 
 /* ---------------- 导入导出（真实实现） ---------------- */
@@ -2143,10 +2167,27 @@ function mergeTree(inTree) {
   });
 }
 
+/* 合并导入：个人数据按 id / day 去重合并（不覆盖已有内容） */
+function mergePersonal(p) {
+  if (!p) return;
+  const tids = new Set(personal.todos.map(t => t.id));
+  (p.todos || []).forEach(t => { if (!tids.has(t.id)) { personal.todos.push(t); tids.add(t.id); } });
+  const gids = new Set(personal.goals.map(g => g.id));
+  (p.goals || []).forEach(g => { if (!gids.has(g.id)) { personal.goals.push(g); gids.add(g.id); } });
+  const rdays = new Set(personal.reviews.map(r => r.day));
+  (p.reviews || []).forEach(r => { if (!rdays.has(r.day)) { personal.reviews.push(r); rdays.add(r.day); } });
+  const iids = new Set(personal.inbox.map(i => i.id));
+  (p.inbox || []).forEach(i => { if (!iids.has(i.id)) { personal.inbox.push(i); iids.add(i.id); } });
+  const bids = new Set(personal.bookmarks.map(b => b.id));
+  (p.bookmarks || []).forEach(b => { if (!bids.has(b.id)) { personal.bookmarks.push(b); bids.add(b.id); } });
+  personal.reviews.sort((a, b) => String(b.day).localeCompare(String(a.day)));
+}
+
 function doMergeImport() {
   const data = window.__importData;
   if (!data) return;
   mergeTree(data.tree);
+  mergePersonal(data.personal);
   const idMap = {};
   data.questions.forEach(q => {
     const hit = questions.find(x => x.subject === q.subject && x.type === q.type && norm(x.titleTex) === norm(q.titleTex));
@@ -2193,6 +2234,19 @@ function doOverwrite() {
   }
   data.questions.forEach(q => questions.push(normalizeQ(q)));
   (data.reviewLogs || []).forEach(l => reviewLogs.push({ id: ++reviewSeq, qid: l.qid, at: l.at, result: l.result }));
+  personal.todos = Array.isArray(data.personal && data.personal.todos) ? data.personal.todos : [];
+  personal.goals = Array.isArray(data.personal && data.personal.goals) ? data.personal.goals : [];
+  personal.reviews = Array.isArray(data.personal && data.personal.reviews) ? data.personal.reviews : [];
+  personal.inbox = Array.isArray(data.personal && data.personal.inbox) ? data.personal.inbox : [];
+  personal.bookmarks = Array.isArray(data.personal && data.personal.bookmarks) ? data.personal.bookmarks : [];
+  personal.reviews.sort((a, b) => String(b.day).localeCompare(String(a.day)));
+  if (data.study) {
+    study.seconds = data.study.seconds || 0;
+    study.blurPrompt = !!data.study.blurPrompt;
+    study.perDay = data.study.perDay || {};
+  }
+  if (typeof data.remindOn === "boolean") remindOn = data.remindOn;
+  if (data.reviewCfg) reviewCfg = { subject: "all", sub: "all", chapter: "", lv: "all", num: 3, ...data.reviewCfg };
   qidSeq = Math.max(100, ...questions.map(q => q.id || 0));
   window.__importData = null;
   persistLocal();
@@ -2376,51 +2430,62 @@ function todoDueTag(t) {
 function parseQuickAdd(raw) {
   let s = String(raw || "").trim();
   const tags = [];
-  const dueKeywords = [
-    { re: /(今天|今日)/, off: 0 },
-    { re: /(明天|明日)/, off: 1 },
-    { re: /(后天|后日)/, off: 2 },
-    { re: /下下[周星期](一|二|三|四|五|六|日|天)/, off: 14 },
-    { re: /下[周星期](一|二|三|四|五|六|日|天)/, off: 7 },
-    { re: /[周星期](一|二|三|四|五|六|日|天)/, off: 0 }
-  ];
-  const WD = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 0, 天: 0 };
   let due = "";
-  for (const k of dueKeywords) {
-    const m = s.match(k.re);
-    if (m) {
-      s = s.replace(k.re, " ").replace(/\s+/g, " ").trim();
-      const wd = m[1] && m[1].length === 1 ? WD[m[1]] : undefined;
-      if (wd !== undefined) {
-        const now = new Date();
-        const cur = (now.getDay() + 6) % 7; // 周一=0
-        let diff = (wd + 7 - cur) % 7;
-        if (diff === 0) diff = 7;
-        diff += k.off;
-        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff);
-        due = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      } else if (k.off > 0) {
-        const d = new Date(Date.now() + k.off * 86400000);
-        due = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      } else {
-        due = dayKey(k.off);
-      }
-      break;
+  const WD = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6 }; // 周一=0
+  const now = new Date();
+  const cur = (now.getDay() + 6) % 7; // 周一=0…周日=6
+  const addDays = n => {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const nextMonday = ((7 - cur) % 7) || 7; // 距下一个周一的天数（今天周一则为 7）
+
+  // 优先级：只有 !高/紧急/中/低 生效，其它 ! 内容原样保留
+  let priority = 0;
+  const pm = s.match(/!([\u4e00-\u9fa5A-Za-z]+)/);
+  if (pm) {
+    const pv = { 高: 3, 紧急: 3, 中: 2, 低: 1 }[pm[1]];
+    if (pv) {
+      priority = pv;
+      s = s.replace(pm[0], " ").replace(/\s+/g, " ").trim();
     }
   }
+
+  // 精确日期
   const dm = s.match(/(\d{4}-\d{2}-\d{2})/);
-  if (!due && dm) {
+  if (dm) {
     due = dm[1];
     s = s.replace(dm[1], " ").replace(/\s+/g, " ").trim();
   }
-  s = s.replace(/#([\u4e00-\u9fa5A-Za-z0-9_+-]+)/g, (_, tg) => { tags.push(tg); return " "; });
-  let priority = 0;
-  const pm = s.match(/!(\S+)/);
-  if (pm) {
-    const pv = { 高: 3, 紧急: 3, 中: 2, 低: 1 }[pm[1]];
-    if (pv) priority = pv;
-    s = s.replace(pm[0], " ").replace(/\s+/g, " ").trim();
+  // 今天 / 明天 / 后天
+  const rel = s.match(/(今天|今日|明天|明日|后天|后日)/);
+  if (!due && rel) {
+    const off = { 今天: 0, 今日: 0, 明天: 1, 明日: 1, 后天: 2, 后日: 2 }[rel[1]];
+    due = addDays(off);
+    s = s.replace(rel[0], " ").replace(/\s+/g, " ").trim();
   }
+  // 下下周X（先匹配，避免被"下周X"吞掉）
+  const m2 = s.match(/下下[周星期](一|二|三|四|五|六|日|天)/);
+  if (!due && m2) {
+    due = addDays(nextMonday + 7 + WD[m2[1]]);
+    s = s.replace(m2[0], " ").replace(/\s+/g, " ").trim();
+  }
+  // 下周X
+  const m3 = s.match(/下[周星期](一|二|三|四|五|六|日|天)/);
+  if (!due && m3) {
+    due = addDays(nextMonday + WD[m3[1]]);
+    s = s.replace(m3[0], " ").replace(/\s+/g, " ").trim();
+  }
+  // 本周X（下一个出现的周几，同一天则为下个自然周）
+  const m4 = s.match(/[周星期](一|二|三|四|五|六|日|天)/);
+  if (!due && m4) {
+    let diff = (WD[m4[1]] - cur + 7) % 7;
+    if (diff === 0) diff = 7;
+    due = addDays(diff);
+    s = s.replace(m4[0], " ").replace(/\s+/g, " ").trim();
+  }
+  // #标签
+  s = s.replace(/#([\u4e00-\u9fa5A-Za-z0-9_+-]+)/g, (_, tg) => { tags.push(tg); return " "; });
   return { title: s.replace(/[！!]\s*$/, "").trim(), due, priority, tags };
 }
 
@@ -3328,7 +3393,15 @@ function hotItemLink(it) {
   return (l && (l.aihot || l.original || l.url || l.story)) || it.url || it.link || "";
 }
 function hotItemTime(it) {
-  return zhTime(it.publishedAt || it.published_at || it.discoveredAt || it.discovered_at || it.createdAt || it.date);
+  return zhTime(it.publishedAt || it.published_at || it.discoveredAt || it.discovered_at || it.createdAt || it.latestAt || it.date);
+}
+
+const HOT_CATS = {
+  industry: "行业", paper: "论文", "ai-products": "AI 产品", "ai-companies": "公司",
+  model: "模型", research: "研究", tips: "技巧", tools: "工具", "ai-hot": "精选"
+};
+function hotCatName(c) {
+  return HOT_CATS[c] || c || "";
 }
 
 function hotLinkHtml(url, text, cls) {
@@ -3365,7 +3438,7 @@ function renderHotItems(data) {
     const sum = hotItemSummary(it);
     const src = hotItemSource(it);
     const time = hotItemTime(it);
-    const tag = it.category ? `<span class="chip mini">${esc(it.category)}</span>` : "";
+    const tag = it.category ? `<span class="chip mini">${esc(hotCatName(it.category))}</span>` : "";
     return `<div class="hot-item">
       <div class="flex-between" style="gap:10px;align-items:flex-start;">
         <div class="flex" style="gap:8px;align-items:flex-start;min-width:0;">
@@ -3404,32 +3477,49 @@ function renderHotTopics(data) {
 }
 
 function renderHotDaily(data) {
-  const d = data && data.data && typeof data.data === "object" ? data.data : data;
+  const d = (data && data.report) || (data && data.data && data.data.report) || data || {};
   const box = $("#hot-list");
   const date = d.date || d.day || "";
-  const sections = (d.sections || d.flashes || d.items || []).filter(Boolean);
-  if (!sections.length) {
+  const sections = Array.isArray(d.sections) ? d.sections : [];
+  const flashes = Array.isArray(d.flashes) ? d.flashes : [];
+  if (!sections.length && !flashes.length) {
     box.innerHTML = `<div class="card"><div class="small muted">暂无日报内容。</div></div>`;
     return;
   }
+  const renderBlock = (list) => list.map((s, i) => {
+    const label = s.label || s.title || s.headline || s.name || "条目 " + (i + 1);
+    let body = "";
+    if (typeof s.items === "string") {
+      body = esc(s.items || "");
+    } else if (Array.isArray(s.items)) {
+      body = s.items.map(it => {
+        const t = hotItemTitle(it);
+        const link = hotItemLink(it);
+        const sum = hotItemSummary(it);
+        const src = hotItemSource(it);
+        return `<div class="hot-item">
+          <div class="flex" style="gap:8px;align-items:flex-start;">
+            ${hotLinkHtml(link, t, "hot-title")}
+          </div>
+          ${sum ? `<div class="small mt-4 hot-sum">${esc(sum)}</div>` : ""}
+          ${src ? `<div class="small muted mt-4">${esc(src)}</div>` : ""}
+        </div>`;
+      }).join("");
+    } else if (typeof s.items === "object" && s.items) {
+      body = esc(JSON.stringify(s.items));
+    }
+    return `<div class="card mb-16">
+      <div class="card-head"><div class="card-title">${esc(label)}</div></div>
+      ${body ? `<div class="small hot-sum" style="white-space:pre-line;">${body}</div>` : `<div class="small muted">暂无内容</div>`}
+    </div>`;
+  }).join("");
   box.innerHTML = `
     <div class="card mb-16">
       <div class="card-head"><div class="card-title">📰 AI 日报${date ? " · " + esc(String(date).slice(0, 10)) : ""}</div></div>
       <div class="small muted">${esc(d.summary || d.digest || "AI HOT 每日精选")}</div>
     </div>
-    ${sections.map((s, i) => {
-      const title = s.title || s.headline || s.name || "条目 " + (i + 1);
-      const sum = s.summary || s.description || s.text || "";
-      const src = hotItemSource(s);
-      return `<div class="hot-item">
-        <div class="flex" style="gap:8px;align-items:flex-start;">
-          <span class="hot-rank">${i + 1}</span>
-          ${hotLinkHtml(hotItemLink(s), title, "hot-title")}
-        </div>
-        ${sum ? `<div class="small mt-4 hot-sum">${esc(sum)}</div>` : ""}
-        ${src ? `<div class="small muted mt-4">${esc(src)}</div>` : ""}
-      </div>`;
-    }).join("")}`;
+    ${renderBlock(sections)}
+    ${flashes.length ? `<div class="card-head mt-16"><div class="card-title">⚡ 快讯</div></div>` + renderBlock(flashes) : ""}`;
 }
 
 /* ---------------- 收藏夹 ---------------- */
@@ -3714,6 +3804,13 @@ function resetDemoData() {
 function doResetDemo() {
   reviewLogs = [];
   study.seconds = 0;
+  study.perDay = {};
+  personal.todos = [];
+  personal.goals = [];
+  personal.reviews = [];
+  personal.inbox = [];
+  personal.bookmarks = [];
+  reviewCfg = { subject: "all", sub: "all", chapter: "", lv: "all", num: 3 };
   seed();
   persistLocal();
   toast("已重置为演示数据", "success");
@@ -3735,13 +3832,17 @@ function doResetDemo() {
     $("#view-login").style.display = "grid";
   }
   setInterval(studyTick, 1000);
-  $$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => { if (a.dataset.view) go(a.dataset.view); }));
+  $$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => {
+    if (a.dataset.view) { go(a.dataset.view); hideMobileMenu(); }
+  }));
   document.addEventListener("click", e => {
     const t = e.target.closest("[data-goto]");
     if (t) go(t.dataset.goto);
   });
   window.go = go;
   window.goDashSection = goDashSection;
+  window.toggleMobileMenu = toggleMobileMenu;
+  window.hideMobileMenu = hideMobileMenu;
   window.toggleLoginMode = toggleLoginMode;
 window.doLogin = doLogin;
 window.doLogout = doLogout;

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.13.0 -->
+  <!-- 个人工作台 v1.13.1 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -526,7 +526,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.13.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.13.1</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
@@ -854,7 +854,38 @@
       <a data-view="todos"><span class="icon">✅</span>待办</a>
       <a data-view="input"><span class="icon">📸</span>录入</a>
       <a data-view="questions"><span class="icon">🗂</span>题库</a>
-      <a data-view="settings"><span class="icon">⚙️</span>设置</a>
+      <a onclick="toggleMobileMenu()"><span class="icon">☰</span>更多</a>
+    </div>
+
+    <!-- 移动端「更多」抽屉（侧边栏在手机上隐藏，所有页面从这里进） -->
+    <div class="mobile-menu" id="mobile-menu" style="display:none;">
+      <div class="mobile-menu-mask" onclick="hideMobileMenu()"></div>
+      <div class="mobile-menu-panel">
+        <div class="flex-between mobile-menu-head">
+          <b>全部功能</b>
+          <button class="btn btn-sm" onclick="hideMobileMenu()">✕ 关闭</button>
+        </div>
+        <div class="nav-group">总览</div>
+        <a class="nav-item" data-view="dashboard"><span class="icon">📊</span>仪表盘</a>
+        <div class="nav-group">计划与复盘</div>
+        <a class="nav-item" data-view="todos"><span class="icon">✅</span>今日待办</a>
+        <a class="nav-item" data-view="goals"><span class="icon">🎯</span>目标与规划</a>
+        <a class="nav-item" data-view="calendar"><span class="icon">📅</span>日历</a>
+        <a class="nav-item" data-view="inbox"><span class="icon">📥</span>收件箱</a>
+        <a class="nav-item" data-view="daily"><span class="icon">📝</span>今日复盘</a>
+        <a class="nav-item" data-view="summary"><span class="icon">📈</span>周月总结</a>
+        <div class="nav-group">学习</div>
+        <a class="nav-item" data-view="input"><span class="icon">📸</span>识别录入</a>
+        <a class="nav-item" data-view="questions"><span class="icon">🗂</span>题库</a>
+        <div class="nav-group">资讯与资料</div>
+        <a class="nav-item" data-view="hot"><span class="icon">🔥</span>热点资讯</a>
+        <a class="nav-item" data-view="bookmarks"><span class="icon">🔖</span>收藏夹</a>
+        <div class="nav-group">系统</div>
+        <a class="nav-item" data-view="settings"><span class="icon">⚙️</span>设置</a>
+        <div class="mt-16">
+          <button class="btn btn-block" onclick="doLogout()">退出登录</button>
+        </div>
+      </div>
     </div>
   </div>
 

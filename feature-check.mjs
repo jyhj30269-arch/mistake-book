@@ -77,10 +77,11 @@ try {
   // 1) 导航精简
   const nav = await evalJS(`(() => ({
     sideItems: Array.from(document.querySelectorAll(".nav-item")).map(a => a.textContent.trim()),
-    tabItems: Array.from(document.querySelectorAll(".mobile-tabbar a")).map(a => a.textContent.trim())
+    tabItems: Array.from(document.querySelectorAll(".mobile-tabbar a")).map(a => a.textContent.trim()),
+    drawerHasSettings: document.querySelectorAll("#mobile-menu .nav-item").length >= 9 && !!document.querySelector("#mobile-menu .nav-item[data-view=settings]")
   }))()`);
   check("侧边栏已删除 随机复习/数据统计", !nav.sideItems.some(t => t.includes("随机复习") || t.includes("数据统计")));
-  check("移动 Tab 含首页/待办/录入/题库/设置", nav.tabItems.length === 5 && nav.tabItems.join().includes("设置") && nav.tabItems.join().includes("待办"));
+  check("移动 Tab 5 项含「更多」，抽屉含设置", nav.tabItems.length === 5 && nav.tabItems.join().includes("更多") && nav.tabItems.join().includes("待办") && nav.drawerHasSettings);
 
   // 2) 复习续传按钮
   await evalJS(`localStorage.setItem("review-resume", JSON.stringify({ queue: [1,2,3], idx: 2, done: [0,1], skipped: [], results: [] })); renderResumeButton(); true`);

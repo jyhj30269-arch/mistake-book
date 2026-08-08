@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · 前端风格系统 v1.13.0
+   个人工作台 · 前端风格系统 v1.13.1
    设计语言：Notion 风 · 浅色暖白 · 细边框 · 小圆角 · 轻阴影 · 蓝色强调
    ============================================================ */
 
@@ -1080,6 +1080,25 @@ a:hover { color: var(--primary-dark); }
   .cal-cell { min-height: 56px; padding: 4px; }
   .cal-badge { min-width: 15px; height: 15px; font-size: 9px; }
   .todo-board { grid-template-columns: repeat(5, 220px); }
+}
+
+/* ---------- v1.13.1：移动端「更多」抽屉 ---------- */
+.mobile-menu { position: fixed; inset: 0; z-index: 60; }
+.mobile-menu-mask { position: absolute; inset: 0; background: rgba(15, 15, 15, .38); }
+.mobile-menu-panel {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  background: var(--card);
+  border-radius: 16px 16px 0 0;
+  padding: 10px 14px calc(20px + env(safe-area-inset-bottom));
+  max-height: 74vh;
+  overflow-y: auto;
+  box-shadow: 0 -6px 24px rgba(15, 15, 15, .12);
+}
+.mobile-menu-head { padding: 8px 2px 10px; }
+.mobile-menu-panel .nav-item { font-size: 15px; padding: 9px 10px; }
+@media (min-width: 769px) {
+  .mobile-menu { display: none !important; }
 }
 
 /* ---------- v1.13.0：仪表盘重排（迷你指标卡） ---------- */

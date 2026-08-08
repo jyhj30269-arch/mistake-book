@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.13.0）
+   个人工作台 · 本地服务（v1.13.1）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
    ============================================================ */
@@ -447,6 +447,10 @@ async function hotFetch(path) {
   if (!res.ok) throw new Error(`AI HOT 请求失败（${res.status}）`);
   const data = await res.json();
   hotCache.set(path, { at: Date.now(), data });
+  if (hotCache.size > 100) {
+    const oldest = [...hotCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) hotCache.delete(oldest[0]);
+  }
   return data;
 }
 
@@ -547,6 +551,13 @@ function generatePdfFromHtml(html) {
     });
   });
 }
+/* 试卷 HTML 缓存定时清理（超 10 分钟未消费的 token） */
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of paperStore) {
+    if (now - v.at > 10 * 60000) paperStore.delete(k);
+  }
+}, 10 * 60000);
 
 /* ---------- HTTP 路由 ---------- */
 let writeQueue = Promise.resolve();
@@ -743,9 +754,13 @@ const server = http.createServer(async (req, res) => {
         const name = String(body.name || "file.pdf");
         const buf = Buffer.from(String(body.dataUrl || "").split(",")[1] || "", "base64");
         if (!buf.length) return sendJson(res, 400, { code: 40001, message: "文件数据为空" });
+        const ext = path.extname(name).toLowerCase();
+        const allow = [".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".txt", ".md", ".zip"];
+        if (!allow.includes(ext)) {
+          return sendJson(res, 400, { code: 40002, message: "不支持的文件类型：" + (ext || "未知") + "（仅允许 PDF/Office/图片/文本/Markdown/ZIP）" });
+        }
         const dir = path.join(ROOT, "uploads");
         fs.mkdirSync(dir, { recursive: true });
-        const ext = path.extname(name).toLowerCase().slice(0, 10) || ".pdf";
         const safe = "bm-" + crypto.randomBytes(8).toString("hex") + ext;
         fs.writeFileSync(path.join(dir, safe), buf);
         sendJson(res, 200, { ok: true, url: "/uploads/" + safe, name });

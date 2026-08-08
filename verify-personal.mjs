@@ -96,6 +96,14 @@ try {
   check("新增热点资讯 / 收藏夹导航",
     nav.items.some(t => t.includes("热点资讯")) && nav.items.some(t => t.includes("收藏夹")));
   check("移动 Tab 仍 5 项", nav.tabs.length === 5);
+  const mobileMenu = await evalJS(`(() => ({
+    drawer: !!document.getElementById("mobile-menu"),
+    moreTab: Array.from(document.querySelectorAll(".mobile-tabbar a")).some(a => a.textContent.includes("更多")),
+    hasSettings: Array.from(document.querySelectorAll("#mobile-menu .nav-item")).some(a => a.dataset.view === "settings"),
+    hasGoals: Array.from(document.querySelectorAll("#mobile-menu .nav-item")).some(a => a.dataset.view === "goals"),
+    hasHot: Array.from(document.querySelectorAll("#mobile-menu .nav-item")).some(a => a.dataset.view === "hot")
+  }))()`);
+  check("移动端：更多抽屉含 设置/目标/热点", mobileMenu.drawer && mobileMenu.moreTab && mobileMenu.hasSettings && mobileMenu.hasGoals && mobileMenu.hasHot);
 
   // 2) 仪表盘总览
   const ov = await evalJS(`(() => ({
@@ -112,9 +120,16 @@ try {
   check("仪表盘：目标进度 / 今日待办 / 动态流渲染", ov.goals && ov.todos && ov.feed);
 
   // 3) 待办升级：快速解析 / 字段 / 子任务 / 看板
-  const parsed = await evalJS(`parseQuickAdd("周五交报告 #工作 !高")`);
-  check("快速解析：标题/标签/优先级", parsed.title === "交报告" && parsed.tags[0] === "工作" && parsed.priority === 3);
-  check("快速解析：自动算出截止日期", parsed.due !== "");
+  const parsed = await evalJS(`(() => {
+    const r = parseQuickAdd("下周五交报告 #工作 !高");
+    const d = new Date(); const cur = (d.getDay() + 6) % 7;
+    const add = n => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0"); };
+    const nextMon = ((7 - cur) % 7) || 7;
+    return { ok: r.due === add(nextMon + 4), title: r.title, tags: r.tags, priority: r.priority, due: r.due };
+  })()`);
+  check("快速解析：下周五日期精确 + 标题/标签/优先级", parsed.ok && parsed.title === "交报告" && parsed.tags[0] === "工作" && parsed.priority === 3);
+  const keepBang = await evalJS(`parseQuickAdd("给老师发邮件!要加附件")`);
+  check("快速解析：非优先级 ! 内容保留", keepBang.title === "给老师发邮件!要加附件" && keepBang.priority === 0);
   await evalJS(`go("todos"); document.getElementById("todo-input").value = "周五交报告 #工作 !高"; addTodo(); true`);
   const t0 = await evalJS(`personal.todos[0]`);
   check("待办：解析后入库（标题/标签/优先级/截止）",
@@ -206,6 +221,8 @@ try {
   check("热点资讯：4 个 Tab + 列表容器", hotDom.tabs.length === 4 && hotDom.hasList && hotDom.fn);
   const hotLive = await evalJS(`API.hotItems({ window: "24h", limit: 3 }).then(d => (d.items || []).length).catch(() => -1)`);
   check("热点资讯：AI HOT 接口可拉取", hotLive > 0);
+  await evalJS(`setHotTab("daily"); true`); await sleep(2500);
+  check("热点：AI 日报有内容", await evalJS(`!document.getElementById("hot-list").innerText.includes("暂无日报内容")`));
 
   // 12) 试卷导出弹窗
   await evalJS(`openPaperExport(); true`);
