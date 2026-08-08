@@ -1,4 +1,6 @@
-/* v1.11.0 个人工作台功能检查：node verify-personal.mjs */
+/* v1.12.0 个人工作台功能检查：node verify-personal.mjs
+   覆盖：仪表盘总览 / 待办升级（快速解析·子任务·看板）/ 目标升级（里程碑·挂待办）/
+   收件箱（转待办）/ 日历 / 复盘自动附带数据 / 周月总结（心情趋势）/ 健康移除 / 持久化 */
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -73,64 +75,112 @@ try {
   await call("Page.reload", { ignoreCache: true });
   await sleep(2200);
 
-  // 1) 改名 + 侧边栏分组
+  // 1) 品牌 + 侧边栏分组（健康移除、新增收件箱/日历）
   const nav = await evalJS(`(() => ({
     brand: document.querySelector(".brand-name").textContent.trim(),
     title: document.title,
-    items: Array.from(document.querySelectorAll(".nav-item")).map(a => a.textContent.trim())
+    groups: Array.from(document.querySelectorAll(".nav-group")).map(a => a.textContent.trim()),
+    items: Array.from(document.querySelectorAll(".nav-item")).map(a => a.textContent.trim()),
+    tabs: Array.from(document.querySelectorAll(".mobile-tabbar a")).map(a => a.textContent.trim()),
+    noHealthNode: !document.querySelector('[data-view="health"]') && !document.querySelector("#view-health")
   }))()`);
   check("品牌名 = 个人工作台", nav.brand === "个人工作台");
   check("浏览器标题 = 个人工作台", nav.title.includes("个人工作台"));
-  check("个人分组含待办/目标/总结/健康/复盘",
-    ["今日待办", "目标与规划", "周月总结", "运动健康", "今日复盘"].every(x => nav.items.some(t => t.includes(x))));
-  check("学习分组含识别录入/题库", nav.items.some(t => t.includes("识别录入")) && nav.items.some(t => t.includes("题库")));
+  check("侧边栏分组 = 总览/计划与复盘/学习/系统",
+    ["总览", "计划与复盘", "学习", "系统"].every(x => nav.groups.includes(x)));
+  check("新增收件箱/日历导航",
+    nav.items.some(t => t.includes("收件箱")) && nav.items.some(t => t.includes("日历")));
+  check("健康模块已移除",
+    !nav.items.some(t => t.includes("健康")) && nav.noHealthNode);
+  check("移动 Tab 仍 5 项", nav.tabs.length === 5);
 
-  // 2) 仪表盘今日概览
-  const ov = await evalJS(`(() => ({ todo: document.getElementById("ov-todo").textContent, review: document.getElementById("ov-review").textContent }))()`);
-  check("仪表盘今日概览渲染", ov.todo.includes("/") && ov.review !== "");
+  // 2) 仪表盘总览
+  const ov = await evalJS(`(() => ({
+    greeting: document.getElementById("dash-greeting").textContent.length > 5,
+    cards: document.querySelectorAll("#ov-grid .stat-card").length,
+    quick: document.querySelectorAll("#dash-quick .quick-action").length,
+    goals: !!document.getElementById("dash-goals").textContent,
+    todos: !!document.getElementById("dash-todos").textContent,
+    feed: !!document.getElementById("dash-feed").textContent
+  }))()`);
+  check("仪表盘：问候语渲染", ov.greeting);
+  check("仪表盘：概览卡 4 张", ov.cards === 4);
+  check("仪表盘：快捷入口 4 个", ov.quick === 4);
+  check("仪表盘：目标进度 / 今日待办 / 动态流渲染", ov.goals && ov.todos && ov.feed);
 
-  // 3) 待办：添加 → 完成 → 删除
-  await evalJS(`go("todos"); addTodo(); document.getElementById("todo-input").value = "复习极限计算"; addTodo(); true`);
-  const todoCount = await evalJS(`personal.todos.length`);
-  check("待办添加成功", todoCount === 1);
-  const todoId = await evalJS(`personal.todos[0].id`);
-  await evalJS(`toggleTodo(${todoId}); true`);
-  const todoDone = await evalJS(`personal.todos[0].done`);
-  check("待办完成打勾", todoDone === true);
-  await evalJS(`delTodo(${todoId}); true`);
-  check("待办删除成功", await evalJS(`personal.todos.length`) === 0);
+  // 3) 待办升级：快速解析 / 字段 / 子任务 / 看板
+  const parsed = await evalJS(`parseQuickAdd("周五交报告 #工作 !高")`);
+  check("快速解析：标题/标签/优先级", parsed.title === "交报告" && parsed.tags[0] === "工作" && parsed.priority === 3);
+  check("快速解析：自动算出截止日期", parsed.due !== "");
+  await evalJS(`go("todos"); document.getElementById("todo-input").value = "周五交报告 #工作 !高"; addTodo(); true`);
+  const t0 = await evalJS(`personal.todos[0]`);
+  check("待办：解析后入库（标题/标签/优先级/截止）",
+    t0.title === "交报告" && t0.tags[0] === "工作" && t0.priority === 3 && t0.due !== "");
+  await evalJS(`editTodo(${t0.id}); document.getElementById("et-sub-input").value = "写提纲"; addTodoSub(${t0.id}); true`);
+  const sub = await evalJS(`personal.todos[0].subtasks[0]`);
+  check("待办：子任务可添加", !!sub && sub.title === "写提纲");
+  await evalJS(`toggleTodoSub(${t0.id}, ${sub.id}); closeModal(); true`);
+  check("待办：子任务完成打勾", (await evalJS(`personal.todos[0].subtasks[0].done`)) === true);
+  await evalJS(`setTodoView("board"); true`);
+  check("待办：看板视图渲染", await evalJS(`!!document.querySelector(".todo-board")`));
+  await evalJS(`toggleTodo(${t0.id}); setTodoView("list"); true`);
+  check("待办：完成打勾", (await evalJS(`personal.todos[0].done`)) === true);
+  await evalJS(`delTodo(${t0.id}); true`);
+  check("待办：删除成功", (await evalJS(`personal.todos.length`)) === 0);
 
-  // 4) 目标：添加 → 进度调整 → 编辑
+  // 4) 目标升级：状态 / 里程碑自动进度 / 挂待办
   await evalJS(`go("goals"); document.getElementById("goal-input").value = "考研初试"; addGoal(); true`);
-  check("目标添加成功", (await evalJS(`personal.goals.length`)) === 1);
-  const goalId = await evalJS(`personal.goals[0].id`);
-  await evalJS(`goalProgress(${goalId}, 10); goalProgress(${goalId}, 10); true`);
-  check("目标进度 +20%", (await evalJS(`personal.goals[0].progress`)) === 20);
-  await evalJS(`editGoal(${goalId}); document.getElementById("eg-milestone").value = "完成第一轮复习"; saveGoalEdit(${goalId}); true`);
-  check("目标里程碑可编辑", (await evalJS(`personal.goals[0].milestone`)) === "完成第一轮复习");
+  const g0 = await evalJS(`personal.goals[0]`);
+  check("目标：添加成功且默认进行中", g0.title === "考研初试" && g0.status === "active");
+  await evalJS(`editGoal(${g0.id}); document.getElementById("eg-ms-input").value = "完成第一轮复习"; addGoalMilestone(${g0.id}); true`);
+  const ms0 = await evalJS(`personal.goals[0].milestones[0]`);
+  check("目标：里程碑可添加", !!ms0 && ms0.title === "完成第一轮复习");
+  await evalJS(`toggleGoalMilestone(${g0.id}, ${ms0.id}); closeModal(); true`);
+  check("目标：里程碑完成自动推进度 100%", (await evalJS(`goalAutoProgress(personal.goals[0])`)) === 100);
+  await evalJS(`document.getElementById("goal-input").value = "买资料"; addGoal(); document.getElementById("goal-input").value = "联系导师"; addGoal(); true`);
+  await evalJS(`go("todos"); document.getElementById("todo-input").value = "整理概率论错题"; addTodo(); go("goals"); true`);
+  const linkedTodo = await evalJS(`personal.todos[0]`);
+  await evalJS(`editGoal(${g0.id}); toggleGoalTodoLink(${g0.id}, ${linkedTodo.id}); closeModal(); true`);
+  check("目标：可挂待办并保留关联", (await evalJS(`personal.goals[0].linkedTodoIds.includes(${linkedTodo.id})`)));
 
-  // 5) 健康：保存目标 + 打卡
-  await evalJS(`go("health"); document.getElementById("health-times").value = "3"; document.getElementById("health-minutes").value = "120"; saveHealthGoal(); healthLog(1, 0); healthLog(0, 30); true`);
-  const health = await evalJS(`({ goal: personal.healthGoal, today: personal.health.find(h => h.day === dayKey()) })`);
-  check("健康周目标保存", health.goal.times === 3 && health.goal.minutes === 120);
-  check("健康今日打卡", health.today && health.today.sportTimes === 1 && health.today.sportMinutes === 30);
+  // 5) 收件箱：随手记 → 转待办
+  await evalJS(`go("inbox"); document.getElementById("inbox-input").value = "周三前给导师发初稿 #论文"; addInboxItem(); true`);
+  const it0 = await evalJS(`personal.inbox[0]`);
+  check("收件箱：文本保留且 #标签提取", it0.text === "周三前给导师发初稿" && it0.tags[0] === "论文");
+  await evalJS(`inboxToTodo(${it0.id}); document.getElementById("it-due").value = "today"; doInboxToTodo(${it0.id}); true`);
+  const afterConv = await evalJS(`(() => {
+    const t = personal.todos[0], it = personal.inbox[0];
+    return { ok: t.title === "周三前给导师发初稿" && t.due === dayKey() && it.status === "done" };
+  })()`);
+  check("收件箱：转待办成功且状态已转出",
+    afterConv.ok);
 
-  // 6) 复盘：填写保存
+  // 6) 日历
+  await evalJS(`go("calendar"); true`);
+  const cal = await evalJS(`({ cells: document.querySelectorAll("#cal-grid .cal-cell").length, head: document.getElementById("cal-head").textContent.includes(new Date().getFullYear()) })`);
+  check("日历：月网格渲染", cal.cells > 20 && cal.head);
+  await evalJS(`calPick(dayKey()); true`);
+  check("日历：点击日期显示详情", (await evalJS(`document.getElementById("cal-detail").textContent.length > 5`)));
+
+  // 7) 复盘升级：保存自动附带当天数据 + 周汇总
   await evalJS(`go("daily"); document.getElementById("rv-done").value = "复习高数"; document.getElementById("rv-stuck").value = "级数"; pickMood($$("#rv-mood .chip")[1]); saveDailyReview(); true`);
   const rv = await evalJS(`personal.reviews[0]`);
-  check("今日复盘保存", rv && rv.done === "复习高数" && rv.stuck === "级数" && rv.mood === "🙂");
+  check("复盘：保存成功且自动附带 stats", rv.done === "复习高数" && rv.stats && typeof rv.stats.studySec === "number" && typeof rv.stats.added === "number");
+  check("复盘：周汇总渲染", await evalJS(`!!document.getElementById("rv-week").textContent`));
 
-  // 7) 周月总结
+  // 8) 周月总结：4 卡 + 心情趋势（不再有运动）
   await evalJS(`go("summary"); true`);
-  const summaryCards = await evalJS(`document.querySelectorAll("#summary-cards .stat-card").length`);
-  check("周月总结渲染 4 卡", summaryCards === 4);
+  const summary = await evalJS(`({ cards: document.querySelectorAll("#summary-cards .stat-card").length, hasHealth: document.querySelectorAll("#summary-health .small").length > 0 || !!document.querySelector("#mood-chart") })`);
+  check("周月总结：渲染 4 卡", summary.cards === 4);
+  check("周月总结：心情趋势区存在", summary.hasHealth);
 
-  // 8) 持久化：刷新后 personal 仍在
+  // 9) 持久化：刷新后 personal 仍在
   await call("Page.reload", { ignoreCache: true });
   await sleep(1800);
-  const after = await evalJS(`({ goals: personal.goals.length, health: personal.health.length, reviews: personal.reviews.length })`);
-  check("刷新后个人数据持久化", after.goals === 1 && after.health === 1 && after.reviews === 1);
+  const after = await evalJS(`({ todos: personal.todos.length, goals: personal.goals.length, inbox: personal.inbox.length, reviews: personal.reviews.length })`);
+  check("刷新后个人数据持久化", after.todos === 2 && after.goals === 3 && after.inbox === 1 && after.reviews === 1);
 
+  ws.close();
 } catch (e) {
   console.error("FAIL 脚本异常:", e.message);
   failures++;
@@ -138,7 +188,8 @@ try {
   browser.kill();
   server.kill();
   await sleep(400);
-  rmSync(testDir, { recursive: true, force: true });
+  try { rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 }); }
+  catch (e) { console.warn("清理临时数据库失败（可忽略）:", e.message); }
 }
 
 console.log(failures ? `\n${failures} 项失败 ✘` : "\n个人工作台功能检查全部通过 ✔");

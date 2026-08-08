@@ -78,27 +78,36 @@ try {
 
   // 预填示例数据
   await evalJS(`(() => {
-    const t = (days, title, done) => personal.todos.push({ id: nextTodoId(), title, done, due: dayKey(-days), priority: 0, createdAt: Date.now() - days * 86400000 });
-    t(0, "复习极限计算章节", false); t(0, "背 100 个考研单词", false); t(1, "完成线代矩阵练习", true); t(2, "整理本周错题", false);
-    personal.goals.push({ id: nextTodoId(), title: "考研初试", category: "学习", progress: 42, milestone: "完成高数一轮复习", targetDate: "2026-12-20", createdAt: Date.now() - 30 * 86400000 });
-    personal.goals.push({ id: nextTodoId(), title: "毕业论文开题", category: "科研", progress: 18, milestone: "完成变量关系图与第一版研究假设", targetDate: "2026-11-30", createdAt: Date.now() - 20 * 86400000 });
-    personal.health.push({ day: dayKey(-1), sportTimes: 1, sportMinutes: 45, sleepHours: 7, note: "慢跑" });
-    personal.health.push({ day: dayKey(0), sportTimes: 1, sportMinutes: 15, sleepHours: 0, note: "" });
-    personal.reviews.unshift({ day: dayKey(0), done: "复习高数极限 + 录入 5 道错题", stuck: "级数敛散性判断还不熟", plan: "上午线代矩阵，下午 408 数据结构", mood: "🙂", updatedAt: Date.now() });
-    personal.reviews.unshift({ day: dayKey(-1), done: "完成英语阅读 2 篇", stuck: "论文选题还没定", plan: "查资料定方向", mood: "😐", updatedAt: Date.now() - 86400000 });
+    const t = (days, title, done, extra) => personal.todos.push({
+      id: nextTodoId(), title, done, due: dayKey(-days), priority: 0,
+      subtasks: [], tags: [], note: "", remind: "", createdAt: Date.now() - days * 86400000, ...extra
+    });
+    t(0, "复习极限计算章节", false, { priority: 3, tags: ["高数"], subtasks: [{ id: 1, title: "泰勒展开 10 题", done: true }, { id: 2, title: "洛必达 10 题", done: false }] });
+    t(0, "背 100 个考研单词", false, { priority: 2, tags: ["英语"] });
+    t(1, "完成线代矩阵练习", true, { priority: 2 });
+    t(2, "整理本周错题", false, { tags: ["错题"] });
+    personal.goals.push({ id: nextTodoId(), title: "考研初试", category: "学习", progress: 42, milestone: "完成高数一轮复习", targetDate: "2026-12-20", status: "active", linkedTodoIds: [], milestones: [{ id: 1, title: "完成高数一轮复习", done: true }, { id: 2, title: "完成线代一轮复习", done: false }], note: "", createdAt: Date.now() - 30 * 86400000 });
+    personal.goals.push({ id: nextTodoId(), title: "毕业论文开题", category: "科研", progress: 18, milestone: "完成变量关系图与第一版研究假设", targetDate: "2026-11-30", status: "active", linkedTodoIds: [], milestones: [{ id: 3, title: "完成变量关系图", done: true }, { id: 4, title: "完成第一版研究假设", done: false }], note: "", createdAt: Date.now() - 20 * 86400000 });
+    personal.inbox.push({ id: nextTodoId(), text: "周三前给导师发开题初稿", tags: ["论文"], status: "open", createdAt: Date.now() - 3600000 });
+    personal.inbox.push({ id: nextTodoId(), text: "整理概率论错题到错题本", tags: ["高数"], status: "open", createdAt: Date.now() - 86400000 });
+    personal.reviews.unshift({ day: dayKey(0), done: "复习高数极限 + 录入 5 道错题", stuck: "级数敛散性判断还不熟", plan: "上午线代矩阵，下午 408 数据结构", mood: "🙂", stats: { studySec: 7200, added: 5, reviewed: 9, todoDone: 2, todoTotal: 4 }, updatedAt: Date.now() });
+    personal.reviews.unshift({ day: dayKey(-1), done: "完成英语阅读 2 篇", stuck: "论文选题还没定", plan: "查资料定方向", mood: "😐", stats: { studySec: 5400, added: 2, reviewed: 6, todoDone: 1, todoTotal: 3 }, updatedAt: Date.now() - 86400000 });
     persistLocal();
-    renderTodayOverview();
   })()`);
   await sleep(400);
 
   await evalJS(`go("todos"); true`); await sleep(500);
   await shot(call, ws, "todos");
+  await evalJS(`setTodoView("board"); true`); await sleep(400);
+  await shot(call, ws, "todos-board");
   await evalJS(`go("goals"); true`); await sleep(500);
   await shot(call, ws, "goals");
   await evalJS(`go("summary"); true`); await sleep(500);
   await shot(call, ws, "summary");
-  await evalJS(`go("health"); true`); await sleep(500);
-  await shot(call, ws, "health");
+  await evalJS(`go("inbox"); true`); await sleep(500);
+  await shot(call, ws, "inbox");
+  await evalJS(`go("calendar"); true`); await sleep(500);
+  await shot(call, ws, "calendar");
   await evalJS(`go("daily"); true`); await sleep(500);
   await shot(call, ws, "daily");
   await evalJS(`go("dashboard"); true`); await sleep(500);
@@ -106,7 +115,7 @@ try {
 
   const diag = await evalJS(`(() => ({
     noHScroll: document.documentElement.scrollWidth <= window.innerWidth,
-    views: ["todos","goals","summary","health","daily"].map(v => !!document.getElementById("view-" + v))
+    views: ["todos","goals","summary","inbox","calendar","daily"].map(v => !!document.getElementById("view-" + v))
   }))()`);
   console.log(which + " PERSONAL DIAG: " + JSON.stringify(diag));
   ws.close();

@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.11.0）
+   个人工作台 · 本地服务（v1.12.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
    ============================================================ */
@@ -64,22 +64,42 @@ db.exec(`
     target_date TEXT DEFAULT '',
     created_at INTEGER
   );
-  CREATE TABLE IF NOT EXISTS health_logs(
-    day TEXT PRIMARY KEY,
-    sport_times INTEGER DEFAULT 0,
-    sport_minutes INTEGER DEFAULT 0,
-    sleep_hours REAL DEFAULT 0,
-    note TEXT DEFAULT ''
-  );
   CREATE TABLE IF NOT EXISTS daily_reviews(
     day TEXT PRIMARY KEY,
     done TEXT DEFAULT '',
     stuck TEXT DEFAULT '',
     plan TEXT DEFAULT '',
     mood TEXT DEFAULT '',
-    updated_at INTEGER
+    updated_at INTEGER,
+    stats TEXT DEFAULT '{}'
+  );
+  CREATE TABLE IF NOT EXISTS inbox_items(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    tags TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'open',
+    created_at INTEGER
   );
 `);
+
+/* ---------- 轻量迁移：老库补新列（CREATE TABLE IF NOT EXISTS 不会改已有表） ---------- */
+function ensureColumn(table, column, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+  if (!cols.includes(column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+}
+ensureColumn("todos", "subtasks", "TEXT DEFAULT '[]'");
+ensureColumn("todos", "tags", "TEXT DEFAULT '[]'");
+ensureColumn("todos", "note", "TEXT DEFAULT ''");
+ensureColumn("todos", "remind", "TEXT DEFAULT ''");
+ensureColumn("goals", "status", "TEXT DEFAULT 'active'");
+ensureColumn("goals", "linked_todos", "TEXT DEFAULT '[]'");
+ensureColumn("goals", "milestones", "TEXT DEFAULT '[]'");
+ensureColumn("goals", "note", "TEXT DEFAULT ''");
+ensureColumn("daily_reviews", "stats", "TEXT DEFAULT '{}'");
+/* 健康模块移除：老库直接删除健康表 */
+db.exec("DROP TABLE IF EXISTS health_logs;");
 
 /* ---------- 账号与会话（cookie 登录） ---------- */
 function hashPassword(pw) {
@@ -211,38 +231,42 @@ function readStudy() {
 }
 
 function readTodos() {
-  return db.prepare("SELECT id, title, done, due, priority, created_at FROM todos ORDER BY done, due, priority DESC, id DESC").all()
-    .map(r => ({ id: r.id, title: r.title, done: !!r.done, due: r.due || "", priority: r.priority || 0, createdAt: r.created_at }));
+  return db.prepare("SELECT id, title, done, due, priority, subtasks, tags, note, remind, created_at FROM todos ORDER BY done, due, priority DESC, id DESC").all()
+    .map(r => ({
+      id: r.id, title: r.title, done: !!r.done, due: r.due || "", priority: r.priority || 0,
+      subtasks: JSON.parse(r.subtasks || "[]"), tags: JSON.parse(r.tags || "[]"),
+      note: r.note || "", remind: r.remind || "", createdAt: r.created_at
+    }));
 }
 
 function readGoals() {
-  return db.prepare("SELECT id, title, category, progress, milestone, target_date, created_at FROM goals ORDER BY id").all()
-    .map(r => ({ id: r.id, title: r.title, category: r.category, progress: r.progress || 0,
-      milestone: r.milestone || "", targetDate: r.target_date || "", createdAt: r.created_at }));
-}
-
-function readHealth() {
-  const rows = db.prepare("SELECT day, sport_times, sport_minutes, sleep_hours, note FROM health_logs ORDER BY day").all();
-  return rows.map(r => ({ day: r.day, sportTimes: r.sport_times || 0, sportMinutes: r.sport_minutes || 0,
-    sleepHours: r.sleep_hours || 0, note: r.note || "" }));
+  return db.prepare("SELECT id, title, category, progress, milestone, target_date, status, linked_todos, milestones, note, created_at FROM goals ORDER BY id").all()
+    .map(r => ({
+      id: r.id, title: r.title, category: r.category, progress: r.progress || 0,
+      milestone: r.milestone || "", targetDate: r.target_date || "", status: r.status || "active",
+      linkedTodoIds: JSON.parse(r.linked_todos || "[]"), milestones: JSON.parse(r.milestones || "[]"),
+      note: r.note || "", createdAt: r.created_at
+    }));
 }
 
 function readReviews() {
-  const rows = db.prepare("SELECT day, done, stuck, plan, mood, updated_at FROM daily_reviews ORDER BY day DESC").all();
+  const rows = db.prepare("SELECT day, done, stuck, plan, mood, stats, updated_at FROM daily_reviews ORDER BY day DESC").all();
   return rows.map(r => ({ day: r.day, done: r.done || "", stuck: r.stuck || "", plan: r.plan || "",
-    mood: r.mood || "", updatedAt: r.updated_at }));
+    mood: r.mood || "", stats: JSON.parse(r.stats || "{}"), updatedAt: r.updated_at }));
+}
+
+function readInbox() {
+  return db.prepare("SELECT id, text, tags, status, created_at FROM inbox_items ORDER BY created_at DESC, id DESC").all()
+    .map(r => ({ id: r.id, text: r.text, tags: JSON.parse(r.tags || "[]"), status: r.status || "open", createdAt: r.created_at }));
 }
 
 function readPersonal() {
   const s = readSettings();
-  let goal = { times: 2, minutes: 90 };
-  try { goal = { ...goal, ...JSON.parse(s.healthGoal || "{}") }; } catch (e) { /* ignore */ }
   return {
     todos: readTodos(),
     goals: readGoals(),
-    health: readHealth(),
     reviews: readReviews(),
-    healthGoal: goal
+    inbox: readInbox()
   };
 }
 
@@ -267,7 +291,7 @@ function getDb() {
 function saveDb(data) {
   db.exec("BEGIN");
   try {
-    db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM health_logs; DELETE FROM daily_reviews;");
+    db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items;");
     const insQ = db.prepare(`INSERT INTO questions
       (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
        wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate)
@@ -299,15 +323,22 @@ function saveDb(data) {
     const insD = db.prepare("INSERT INTO study_days(day, seconds) VALUES (?,?)");
     Object.entries((data.study && data.study.perDay) || {}).forEach(([day, sec]) => insD.run(day, sec));
     const p = data.personal || {};
-    const insT = db.prepare("INSERT INTO todos(title, done, due, priority, created_at) VALUES (?,?,?,?,?)");
-    (p.todos || []).forEach(t => insT.run(String(t.title || "").slice(0, 200), t.done ? 1 : 0, t.due || "", t.priority || 0, t.createdAt || Date.now()));
-    const insG = db.prepare("INSERT INTO goals(title, category, progress, milestone, target_date, created_at) VALUES (?,?,?,?,?,?)");
-    (p.goals || []).forEach(g => insG.run(String(g.title || "").slice(0, 200), g.category || "学习", g.progress || 0, g.milestone || "", g.targetDate || "", g.createdAt || Date.now()));
-    const insH = db.prepare("INSERT INTO health_logs(day, sport_times, sport_minutes, sleep_hours, note) VALUES (?,?,?,?,?)");
-    (p.health || []).forEach(h => insH.run(h.day, h.sportTimes || 0, h.sportMinutes || 0, h.sleepHours || 0, h.note || ""));
-    const insR = db.prepare("INSERT INTO daily_reviews(day, done, stuck, plan, mood, updated_at) VALUES (?,?,?,?,?,?)");
-    (p.reviews || []).forEach(rv => insR.run(rv.day, rv.done || "", rv.stuck || "", rv.plan || "", rv.mood || "", rv.updatedAt || Date.now()));
-    if (p.healthGoal) insS.run("healthGoal", JSON.stringify(p.healthGoal));
+    const insT = db.prepare("INSERT INTO todos(title, done, due, priority, subtasks, tags, note, remind, created_at) VALUES (?,?,?,?,?,?,?,?,?)");
+    (p.todos || []).forEach(t => insT.run(
+      String(t.title || "").slice(0, 200), t.done ? 1 : 0, t.due || "", t.priority || 0,
+      JSON.stringify(t.subtasks || []), JSON.stringify(t.tags || []), t.note || "", t.remind || "",
+      t.createdAt || Date.now()));
+    const insG = db.prepare("INSERT INTO goals(title, category, progress, milestone, target_date, status, linked_todos, milestones, note, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)");
+    (p.goals || []).forEach(g => insG.run(
+      String(g.title || "").slice(0, 200), g.category || "学习", g.progress || 0, g.milestone || "",
+      g.targetDate || "", g.status || "active", JSON.stringify(g.linkedTodoIds || []),
+      JSON.stringify(g.milestones || []), g.note || "", g.createdAt || Date.now()));
+    const insR = db.prepare("INSERT INTO daily_reviews(day, done, stuck, plan, mood, stats, updated_at) VALUES (?,?,?,?,?,?,?)");
+    (p.reviews || []).forEach(rv => insR.run(rv.day, rv.done || "", rv.stuck || "", rv.plan || "", rv.mood || "",
+      JSON.stringify(rv.stats || {}), rv.updatedAt || Date.now()));
+    const insI = db.prepare("INSERT INTO inbox_items(id, text, tags, status, created_at) VALUES (?,?,?,?,?)");
+    (p.inbox || []).forEach(it => insI.run(it.id, String(it.text || "").slice(0, 1000),
+      JSON.stringify(it.tags || []), it.status || "open", it.createdAt || Date.now()));
     db.exec("COMMIT");
     return { ok: true };
   } catch (e) {

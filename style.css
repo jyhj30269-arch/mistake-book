@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · 前端风格系统 v1.11.0
+   个人工作台 · 前端风格系统 v1.12.0
    设计语言：Notion 风 · 浅色暖白 · 细边框 · 小圆角 · 轻阴影 · 蓝色强调
    ============================================================ */
 
@@ -922,7 +922,7 @@ a:hover { color: var(--primary-dark); }
 .rev-nav-item.done { background: var(--success-light); border-color: var(--success); color: var(--success); cursor: default; }
 .rev-nav-item.skipped { opacity: .55; text-decoration: line-through; }
 
-/* ---------- 个人工作台：待办 / 目标 / 健康 / 复盘 ---------- */
+/* ---------- 个人工作台：待办 / 目标 / 复盘 / 收件箱 ---------- */
 .todo-row {
   display: flex;
   align-items: center;
@@ -957,3 +957,127 @@ a:hover { color: var(--primary-dark); }
   margin-bottom: 10px;
 }
 .review-item:last-child { margin-bottom: 0; }
+
+/* ---------- v1.12.0：仪表盘总览 ---------- */
+.dash-greeting { padding: 16px 4px 2px; }
+.dash-greeting-title { font-size: 22px; font-weight: 700; }
+
+.quick-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  transition: box-shadow .15s, transform .15s, border-color .15s;
+}
+.quick-action:hover { border-color: var(--primary); box-shadow: var(--shadow); transform: translateY(-1px); color: var(--text); }
+.qa-icon { font-size: 22px; }
+
+.dash-goal { padding: 8px 0; }
+.dash-goal + .dash-goal { border-top: 1px solid #F0EEEA; }
+
+.feed-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #F0EEEA; }
+.feed-row:last-of-type { border-bottom: none; }
+.feed-icon {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: var(--primary-soft);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-size: 13px;
+}
+.feed-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- v1.12.0：待办升级 ---------- */
+.tag-danger { background: var(--danger-light); color: var(--danger); }
+.tag-warn { background: #FFF7E6; color: #B97700; }
+.tag-success { background: var(--success-light); color: var(--success); }
+.prio-1 { background: #EFF7EF; color: #448361; }
+.prio-2 { background: #FFF7E6; color: #B97700; }
+.prio-3 { background: var(--danger-light); color: var(--danger); }
+.chip.mini { font-size: 11px; padding: 1px 7px; border-radius: 999px; }
+.chip-ok { background: var(--success-light); border-color: var(--success); color: var(--success); }
+
+.todo-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.todo-col { background: #FBFAF8; border: 1px solid var(--border); border-radius: 10px; padding: 10px; min-width: 180px; }
+.todo-col-head { font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.todo-col-body { display: flex; flex-direction: column; gap: 6px; }
+.todo-col-body .todo-row {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: var(--shadow-sm);
+  flex-wrap: wrap;
+}
+.todo-sub-row { padding: 6px 2px; border-bottom: 1px solid #F0EEEA; }
+
+/* ---------- v1.12.0：目标升级 ---------- */
+.goal-ms-item { display: flex; align-items: center; gap: 8px; padding: 5px 4px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.goal-ms-item:hover { background: var(--hover); }
+.goal-ms-item.on { color: var(--text-3); }
+.goal-ms-item.on .goal-ms-check { background: var(--primary); border-color: var(--primary); color: #fff; }
+.goal-ms-check {
+  width: 18px; height: 18px;
+  border: 1.5px solid var(--border-strong); border-radius: 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; flex-shrink: 0;
+}
+.goal-link-list {
+  max-height: 180px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.goal-link-opt { font-size: 13px; }
+
+/* ---------- v1.12.0：收件箱 ---------- */
+.inbox-item { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: var(--card); }
+.inbox-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; background: var(--primary); }
+.inbox-dot.done { background: var(--success); }
+.inbox-dot.archived { background: var(--text-3); }
+
+/* ---------- v1.12.0：日历 ---------- */
+.cal-week { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; color: var(--text-3); font-size: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal-cell {
+  min-height: 74px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px;
+  cursor: pointer;
+  position: relative;
+  transition: background .15s;
+}
+.cal-cell:hover { background: var(--hover); }
+.cal-cell.empty { cursor: default; }
+.cal-cell.empty:hover { background: transparent; }
+.cal-cell.today { border-color: var(--primary); background: var(--primary-soft); }
+.cal-cell.sel { background: var(--primary-light); }
+.cal-num { font-size: 13px; font-weight: 600; }
+.cal-badges { display: flex; gap: 3px; margin-top: 4px; flex-wrap: wrap; }
+.cal-badge {
+  min-width: 17px; height: 17px; border-radius: 999px;
+  font-size: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 4px;
+}
+.cal-badge.todo { background: var(--primary-light); color: var(--primary-dark); }
+.cal-badge.goal { background: #FFF7E6; color: #B97700; }
+.cal-badge.rv { background: var(--success-light); color: var(--success); }
+.cal-study { position: absolute; right: 6px; bottom: 4px; font-size: 10px; color: var(--text-3); }
+
+@media (max-width: 768px) {
+  .quick-action { padding: 12px 14px; }
+  .cal-cell { min-height: 56px; padding: 4px; }
+  .cal-badge { min-width: 15px; height: 15px; font-size: 9px; }
+  .todo-board { grid-template-columns: repeat(5, 220px); }
+}

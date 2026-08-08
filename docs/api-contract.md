@@ -1,6 +1,6 @@
 # 考研错题本 · 前端 API 接口契约
 
-> 版本：v1 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
+> 版本：v1.12.0 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
 >
 > 本文件与 `../api.js` 一一对应。后端接入时按此契约实现同名方法即可，前端业务代码无需改动。
 
@@ -63,6 +63,28 @@
 ```
 
 `result` 枚举：`ok`（做对）/ `fail`（做错）/ `half`（思路对细节错，不升降级）/ `stuck`（卡住，不升降级）。
+
+### 个人数据 `personal`
+
+```json
+{
+  "todos": [{ "id": 1, "title": "周五交报告", "done": false, "due": "2026-08-14", "priority": 3,
+              "subtasks": [{ "id": 1, "title": "写提纲", "done": true }], "tags": ["工作"],
+              "note": "", "remind": "", "createdAt": 1754000000000 }],
+  "goals": [{ "id": 2, "title": "考研初试", "category": "学习", "progress": 50, "milestone": "",
+              "targetDate": "2026-12-20", "status": "active",
+              "linkedTodoIds": [1], "milestones": [{ "id": 1, "title": "完成一轮复习", "done": true }],
+              "note": "", "createdAt": 1754000000000 }],
+  "reviews": [{ "day": "2026-08-08", "done": "", "stuck": "", "plan": "", "mood": "🙂",
+                "stats": { "studySec": 7200, "added": 5, "reviewed": 9, "todoDone": 2, "todoTotal": 4 },
+                "updatedAt": 1754000000000 }],
+  "inbox": [{ "id": 3, "text": "周三前给导师发初稿", "tags": ["论文"], "status": "open", "createdAt": 1754000000000 }]
+}
+```
+
+- `todos.priority`：0 无 / 1 低 / 2 中 / 3 高；`goals.status`：active 进行中 / done 已完成 / paused 已搁置。
+- `goals.progress` 为手动兜底值：挂关联待办或里程碑后由前端按完成率自动计算。
+- `health_logs` 表已随健康模块移除（老库启动时自动 DROP）。
 
 ### OCR 结果
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.11.0 -->
+  <!-- 个人工作台 v1.12.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -15,7 +15,7 @@
     <div class="login-wrap">
       <div class="login-brand">
         <h1>个人工作台</h1>
-        <p>错题学习 + 个人管理：拍照录入 → OCR 识别 → 分类归档 → 随机抽题复习 → 待办 / 目标 / 复盘。</p>
+        <p>错题学习 + 个人管理：拍照录入 → OCR 识别 → 随机抽题复习 → 待办 / 目标 / 收件箱 / 日历 / 复盘。</p>
         <div class="flow">
           <div><span class="dot"></span>单题 / 批量识别合为一个入口</div>
           <div><span class="dot"></span>数据存本地 SQLite（mistake-book.db）</div>
@@ -61,15 +61,16 @@
           </div>
         </div>
 
-        <div class="nav-group">工作台</div>
+        <div class="nav-group">总览</div>
         <a class="nav-item" data-view="dashboard"><span class="icon">📊</span>仪表盘</a>
 
-        <div class="nav-group">个人</div>
+        <div class="nav-group">计划与复盘</div>
         <a class="nav-item" data-view="todos"><span class="icon">✅</span>今日待办</a>
         <a class="nav-item" data-view="goals"><span class="icon">🎯</span>目标与规划</a>
-        <a class="nav-item" data-view="summary"><span class="icon">📈</span>周月总结</a>
-        <a class="nav-item" data-view="health"><span class="icon">💪</span>运动健康</a>
+        <a class="nav-item" data-view="calendar"><span class="icon">📅</span>日历</a>
+        <a class="nav-item" data-view="inbox"><span class="icon">📥</span>收件箱</a>
         <a class="nav-item" data-view="daily"><span class="icon">📝</span>今日复盘</a>
+        <a class="nav-item" data-view="summary"><span class="icon">📈</span>周月总结</a>
 
         <div class="nav-group">学习</div>
         <a class="nav-item" data-view="input"><span class="icon">📸</span>识别录入</a>
@@ -124,33 +125,24 @@
             </div>
           </div>
 
+          <div id="dash-greeting"></div>
+          <div class="grid grid-4 mt-16" id="ov-grid"></div>
+          <div class="grid grid-2 mt-16" id="dash-quick"></div>
+
+          <div class="grid grid-2 mt-16">
+            <div class="card">
+              <div class="card-head"><div class="card-title">🎯 目标进度</div><span class="card-more" onclick="go('goals')">全部 →</span></div>
+              <div id="dash-goals"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><div class="card-title">✅ 今日待办</div><span class="card-more" onclick="go('todos')">全部 →</span></div>
+              <div id="dash-todos"></div>
+            </div>
+          </div>
+
           <div class="card mt-16">
-            <div class="card-head">
-              <div class="card-title">📋 今日概览</div>
-              <span class="card-more" onclick="go('todos')">去安排 →</span>
-            </div>
-            <div class="grid grid-4" id="overview-grid">
-              <div class="stat-card" style="border:none;box-shadow:none;padding:8px 0;">
-                <div class="stat-label">待办完成</div>
-                <div class="stat-value" style="font-size:20px;"><span id="ov-todo">0</span></div>
-                <div class="stat-delta" id="ov-todo-sub">共 0 条</div>
-              </div>
-              <div class="stat-card" style="border:none;box-shadow:none;padding:8px 0;">
-                <div class="stat-label">本周运动</div>
-                <div class="stat-value" style="font-size:20px;"><span id="ov-sport">0</span></div>
-                <div class="stat-delta" id="ov-sport-sub">0 / 0 次</div>
-              </div>
-              <div class="stat-card" style="border:none;box-shadow:none;padding:8px 0;">
-                <div class="stat-label">今日复盘</div>
-                <div class="stat-value" style="font-size:20px;"><span id="ov-review">未写</span></div>
-                <div class="stat-delta" id="ov-review-sub">晚上留 10 分钟</div>
-              </div>
-              <div class="stat-card" style="border:none;box-shadow:none;padding:8px 0;">
-                <div class="stat-label">今日学习</div>
-                <div class="stat-value" style="font-size:20px;"><span id="ov-study">0</span></div>
-                <div class="stat-delta" id="ov-study-sub">分钟（打开应用计时）</div>
-              </div>
-            </div>
+            <div class="card-head"><div class="card-title">🕘 最近动态</div><span class="small muted">录入 / 复习 / 复盘</span></div>
+            <div id="dash-feed"></div>
           </div>
 
           <div class="card mt-16">
@@ -540,7 +532,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.11.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.12.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
@@ -612,13 +604,26 @@
           </div>
           <div class="card">
             <div class="flex" style="gap:8px;flex-wrap:wrap;">
-              <input class="input" id="todo-input" placeholder="添加一条待办…" style="flex:1;min-width:220px;" onkeydown="if(event.key==='Enter')addTodo()" />
+              <input class="input" id="todo-input" placeholder="快速添加：周五交报告 #工作 !高（支持今天/周X/下周一）" style="flex:1;min-width:240px;" onkeydown="if(event.key==='Enter')addTodo()" />
               <select class="select" id="todo-due" style="width:130px;flex-shrink:0;">
                 <option value="today">今天</option>
                 <option value="">无期限</option>
                 <option value="tomorrow">明天</option>
               </select>
+              <select class="select" id="todo-priority" style="width:110px;flex-shrink:0;">
+                <option value="0">优先级：无</option>
+                <option value="1">🟢 低</option>
+                <option value="2">🟡 中</option>
+                <option value="3">🔴 高</option>
+              </select>
               <button class="btn btn-primary" onclick="addTodo()">添加</button>
+            </div>
+            <div class="flex-between mt-8">
+              <span class="small muted">💡 输入框可直接写「今天 / 明天 / 周X / 下周一」「#标签」「!高/中/低」自动解析</span>
+              <div class="flex" id="todo-view-mode">
+                <span class="chip on" data-v="list" onclick="setTodoView('list')">列表</span>
+                <span class="chip" data-v="board" onclick="setTodoView('board')">看板</span>
+              </div>
             </div>
             <div class="divider"></div>
             <div id="todo-list"></div>
@@ -630,8 +635,14 @@
           <div class="topbar">
             <div>
               <div class="page-title">🎯 目标与规划</div>
-              <div class="page-sub">大目标 + 里程碑 + 进度条，像 Notion 一样追踪进展</div>
+              <div class="page-sub">大目标 + 里程碑清单 + 挂待办自动进度，像 Notion 一样追踪进展</div>
             </div>
+          </div>
+          <div class="flex mb-16" id="goal-filter">
+            <span class="chip on" data-v="all" onclick="setGoalFilter('all')">全部</span>
+            <span class="chip" data-v="active" onclick="setGoalFilter('active')">▶ 进行中</span>
+            <span class="chip" data-v="done" onclick="setGoalFilter('done')">✅ 已完成</span>
+            <span class="chip" data-v="paused" onclick="setGoalFilter('paused')">⏸ 已搁置</span>
           </div>
           <div class="card mb-16">
             <div class="flex" style="gap:8px;flex-wrap:wrap;">
@@ -640,7 +651,6 @@
                 <option>学习</option>
                 <option>科研</option>
                 <option>生活</option>
-                <option>健康</option>
               </select>
               <input class="input" id="goal-date" type="date" style="width:150px;flex-shrink:0;" />
               <button class="btn btn-primary" onclick="addGoal()">添加目标</button>
@@ -664,7 +674,7 @@
           <div class="grid grid-4" id="summary-cards"></div>
           <div class="grid grid-2 mt-16">
             <div class="card">
-              <div class="card-head"><div class="card-title">💪 运动健康</div></div>
+              <div class="card-head"><div class="card-title">😊 心情趋势</div><span class="tag">最近 14 天</span></div>
               <div id="summary-health"></div>
             </div>
             <div class="card">
@@ -674,45 +684,54 @@
           </div>
         </section>
 
-        <!-- ========== 运动健康 ========== -->
-        <section id="view-health" style="display:none;">
+        <!-- ========== 日历 ========== -->
+        <section id="view-calendar" style="display:none;">
           <div class="topbar">
             <div>
-              <div class="page-title">💪 运动健康</div>
-              <div class="page-sub" id="health-sub"></div>
+              <div class="page-title">📅 日历</div>
+              <div class="page-sub" id="calendar-sub"></div>
             </div>
           </div>
-          <div class="grid grid-2">
+          <div class="flex-between mb-16" id="cal-head"></div>
+          <div class="grid grid-2" style="align-items:start;">
             <div class="card">
-              <div class="card-head"><div class="card-title">本周目标</div><span class="tag">可调整</span></div>
-              <div class="grid grid-2">
-                <div class="field">
-                  <label>周目标次数</label>
-                  <input class="input" id="health-times" type="number" min="0" value="2" />
-                </div>
-                <div class="field">
-                  <label>周目标分钟</label>
-                  <input class="input" id="health-minutes" type="number" min="0" value="90" />
-                </div>
+              <div class="cal-week">
+                <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
               </div>
-              <button class="btn btn-primary" onclick="saveHealthGoal()">保存目标</button>
+              <div class="cal-grid" id="cal-grid"></div>
+              <div class="flex mt-8" style="gap:12px;flex-wrap:wrap;">
+                <span class="small muted"><span class="cal-badge todo">1</span> 待办</span>
+                <span class="small muted"><span class="cal-badge goal">1</span> 目标</span>
+                <span class="small muted"><span class="cal-badge rv">✓</span> 复盘</span>
+                <span class="small muted">12m 学习</span>
+              </div>
             </div>
-            <div class="card">
-              <div class="card-head"><div class="card-title">今日打卡</div></div>
-              <div class="flex" style="flex-wrap:wrap;">
-                <button class="btn" onclick="healthLog(1,0)">🏃 +1 次运动</button>
-                <button class="btn" onclick="healthLog(0,15)">⏱ +15 分钟</button>
-                <button class="btn" onclick="healthLog(0,30)">⏱ +30 分钟</button>
-              </div>
-              <div class="divider"></div>
-              <div class="small muted">本周进度：<b id="health-progress"></b></div>
-              <div class="progress mt-8"><i id="health-progress-bar" style="width:0%"></i></div>
+            <div class="card" id="cal-detail"></div>
+          </div>
+        </section>
+
+        <!-- ========== 收件箱 ========== -->
+        <section id="view-inbox" style="display:none;">
+          <div class="topbar">
+            <div>
+              <div class="page-title">📥 收件箱</div>
+              <div class="page-sub" id="inbox-sub"></div>
             </div>
           </div>
-          <div class="card mt-16">
-            <div class="card-head"><div class="card-title">最近打卡记录</div></div>
-            <div id="health-list"></div>
+          <div class="card">
+            <div class="flex" style="gap:8px;">
+              <input class="input" id="inbox-input" placeholder="随手记：比如「周三前给导师发初稿 #论文」…" style="flex:1;" onkeydown="if(event.key==='Enter')addInboxItem()" />
+              <button class="btn btn-primary" onclick="addInboxItem()">收进来</button>
+            </div>
+            <div class="small muted mt-8">支持 #标签；稍后可一键转成待办 / 目标 / 复盘素材。</div>
           </div>
+          <div class="flex mt-16 mb-8" id="inbox-filter">
+            <span class="chip on" data-v="open" onclick="setInboxFilter('open')">待处理</span>
+            <span class="chip" data-v="done" onclick="setInboxFilter('done')">已转出</span>
+            <span class="chip" data-v="archived" onclick="setInboxFilter('archived')">已归档</span>
+            <span class="chip" data-v="all" onclick="setInboxFilter('all')">全部</span>
+          </div>
+          <div id="inbox-list"></div>
         </section>
 
         <!-- ========== 今日复盘 ========== -->
@@ -725,6 +744,7 @@
           </div>
           <div class="card">
             <div class="card-head"><div class="card-title">晚上留 10 分钟，过一遍今天</div><span class="tag">固定模板</span></div>
+            <div class="flex mb-16" id="rv-stats" style="gap:6px;flex-wrap:wrap;"></div>
             <div class="field">
               <label>今天完成了什么？</label>
               <textarea class="textarea" id="rv-done" rows="3" placeholder="复习了哪些章节、录入了哪些错题、论文推进了什么…"></textarea>
@@ -748,6 +768,10 @@
               </div>
             </div>
             <button class="btn btn-primary" onclick="saveDailyReview()">保存今日复盘</button>
+          </div>
+          <div class="card mt-16">
+            <div class="card-head"><div class="card-title">📊 本周复盘汇总</div><span class="tag">自动统计</span></div>
+            <div id="rv-week"></div>
           </div>
           <div class="card mt-16">
             <div class="card-head"><div class="card-title">历史复盘</div><span class="tag">最近 7 天</span></div>
