@@ -2,6 +2,7 @@
 _shots/
 mistake-book.db
 mistake-book.db-*
+uploads/
 
 # 系统 / 临时文件
 Thumbs.db

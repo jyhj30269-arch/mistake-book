@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.12.0）
+   个人工作台 · 本地服务（v1.13.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
    ============================================================ */
@@ -78,6 +78,15 @@ db.exec(`
     text TEXT NOT NULL,
     tags TEXT DEFAULT '[]',
     status TEXT DEFAULT 'open',
+    created_at INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS bookmarks(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    kind TEXT DEFAULT 'link',
+    url TEXT DEFAULT '',
+    note TEXT DEFAULT '',
+    tags TEXT DEFAULT '[]',
     created_at INTEGER
   );
 `);
@@ -260,13 +269,20 @@ function readInbox() {
     .map(r => ({ id: r.id, text: r.text, tags: JSON.parse(r.tags || "[]"), status: r.status || "open", createdAt: r.created_at }));
 }
 
+function readBookmarks() {
+  return db.prepare("SELECT id, title, kind, url, note, tags, created_at FROM bookmarks ORDER BY created_at DESC, id DESC").all()
+    .map(r => ({ id: r.id, title: r.title, kind: r.kind || "link", url: r.url || "", note: r.note || "",
+      tags: JSON.parse(r.tags || "[]"), createdAt: r.created_at }));
+}
+
 function readPersonal() {
   const s = readSettings();
   return {
     todos: readTodos(),
     goals: readGoals(),
     reviews: readReviews(),
-    inbox: readInbox()
+    inbox: readInbox(),
+    bookmarks: readBookmarks()
   };
 }
 
@@ -291,7 +307,7 @@ function getDb() {
 function saveDb(data) {
   db.exec("BEGIN");
   try {
-    db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items;");
+    db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks;");
     const insQ = db.prepare(`INSERT INTO questions
       (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
        wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate)
@@ -339,6 +355,10 @@ function saveDb(data) {
     const insI = db.prepare("INSERT INTO inbox_items(id, text, tags, status, created_at) VALUES (?,?,?,?,?)");
     (p.inbox || []).forEach(it => insI.run(it.id, String(it.text || "").slice(0, 1000),
       JSON.stringify(it.tags || []), it.status || "open", it.createdAt || Date.now()));
+    const insB = db.prepare("INSERT INTO bookmarks(id, title, kind, url, note, tags, created_at) VALUES (?,?,?,?,?,?,?)");
+    (p.bookmarks || []).forEach(b => insB.run(b.id, String(b.title || "").slice(0, 200), b.kind || "link",
+      String(b.url || "").slice(0, 2000), String(b.note || "").slice(0, 1000),
+      JSON.stringify(b.tags || []), b.createdAt || Date.now()));
     db.exec("COMMIT");
     return { ok: true };
   } catch (e) {
@@ -367,6 +387,7 @@ const MIME = {
   ".json": "application/json; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg",
   ".svg": "image/svg+xml", ".ico": "image/x-icon", ".ttf": "font/ttf", ".woff": "font/woff",
   ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8", ".md": "text/markdown; charset=utf-8"
+  ,".pdf": "application/pdf"
 };
 
 function sendJson(res, code, obj) {
@@ -410,6 +431,119 @@ function mineruRecognize(dataUrl) {
       }
       cleanup();
       resolve({ text: (stdout || "").trim(), source: "mineru" });
+    });
+  });
+}
+
+/* ---------- AI HOT 资讯代理（匿名只读 + 60 秒缓存） ---------- */
+const HOT_BASE = "https://aihot.virxact.com/api/v1";
+const hotCache = new Map();
+async function hotFetch(path) {
+  const cached = hotCache.get(path);
+  if (cached && Date.now() - cached.at < 60000) return cached.data;
+  const res = await fetch(HOT_BASE + path, {
+    headers: { "User-Agent": "aihot-skill/1.2.3 (+https://aihot.virxact.com/aihot-skill/)" }
+  });
+  if (!res.ok) throw new Error(`AI HOT 请求失败（${res.status}）`);
+  const data = await res.json();
+  hotCache.set(path, { at: Date.now(), data });
+  return data;
+}
+
+/* ---------- 试卷 PDF 生成（本机无头浏览器打印，KaTeX 渲染公式） ---------- */
+const PDF_BROWSERS = [
+  process.env.PDF_BROWSER || "",
+  "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+].filter(Boolean);
+function findPdfBrowser() {
+  return PDF_BROWSERS.find(p => fs.existsSync(p)) || null;
+}
+const paperStore = new Map(); // token -> { html, at }
+
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[c]);
+}
+
+function paperLatex(s) {
+  let t = String(s || "");
+  t = t.replace(/\r\n/g, "\n");
+  t = t.replace(/([（(]?[A-Fa-f][.、)）]\s*)/g, "\n$1"); // 选项换行
+  t = t.replace(/```latex|```/g, "");
+  t = t.replace(/\$/g, "");
+  t = t.replace(/\\begin\{align\*?\}/g, "\\begin{aligned}").replace(/\\end\{align\*?\}/g, "\\end{aligned}");
+  t = t.replace(/\\begin\{equation\*?\}/g, "").replace(/\\end\{equation\*?\}/g, "");
+  t = t.replace(/\n{3,}/g, "\n\n");
+  return t.trim();
+}
+
+function buildPaperHtml(paper) {
+  const qs = (paper.questions || []).map((q, i) => {
+    const tag = q.type === "vocabulary" ? "【单词辨析】" : q.type === "essay" ? "【写作/背诵】" : "";
+    return `<div class="q">
+      <div class="q-num">${i + 1}. ${tag}</div>
+      <div class="q-body"><span class="katex-render" data-tex="${escHtml(paperLatex(q.titleTex))}"></span></div>
+    </div>`;
+  }).join("");
+  const ans = paper.answers ? (paper.questions || []).map((q, i) => `
+    <div class="q">
+      <div class="q-num">${i + 1}.</div>
+      <div class="q-ans"><b>答案：</b><span class="katex-render" data-tex="${escHtml(paperLatex(q.solutionTex || "略"))}"></span></div>
+    </div>`).join("") : "";
+  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8">
+  <link rel="stylesheet" href="/vendor/katex/katex.min.css">
+  <style>
+    @page { size: A4; margin: 18mm 16mm; }
+    body { font-family: "Microsoft YaHei","PingFang SC",sans-serif; color: #222; line-height: 1.8; }
+    .paper-title { text-align:center; font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+    .paper-sub { text-align:center; font-size: 12px; color: #666; margin-bottom: 18px; }
+    .paper-meta { display: flex; justify-content: space-between; font-size: 12px; color: #555; margin-bottom: 16px; border-bottom: 1px solid #ccc; padding-bottom: 8px; }
+    .q { margin-bottom: 22px; page-break-inside: avoid; }
+    .q-num { font-weight: 700; margin-bottom: 4px; }
+    .q-body { font-size: 14px; }
+    .q-ans { margin-top: 8px; font-size: 12px; color: #555; border-left: 3px solid #eee; padding-left: 8px; }
+    .page-break { page-break-before: always; }
+  </style></head><body>
+  <div class="paper-title">${escHtml(paper.title || "错题巩固卷")}</div>
+  <div class="paper-sub">${escHtml(paper.subtitle || "")}</div>
+  <div class="paper-meta"><span>姓名：____________</span><span>日期：____年__月__日</span><span>共 ${qs.length} 题</span></div>
+  ${qs}
+  ${paper.answers ? `<div class="page-break"></div><div class="paper-title">参考答案与解析</div><div style="margin-top:12px;">${ans}</div>` : ""}
+  <script src="/vendor/katex/katex.min.js"></script>
+  <script>
+    document.querySelectorAll(".katex-render").forEach(node => {
+      try { katex.render(node.getAttribute("data-tex"), node, { throwOnError: false, displayMode: false }); }
+      catch (e) { node.textContent = node.getAttribute("data-tex"); }
+    });
+  </script>
+  </body></html>`;
+}
+
+function generatePdfFromHtml(html) {
+  return new Promise((resolve, reject) => {
+    const browser = findPdfBrowser();
+    if (!browser) return reject(new Error("未检测到 Edge / Chrome，无法导出 PDF"));
+    const token = crypto.randomBytes(12).toString("hex");
+    paperStore.set(token, { html, at: Date.now() });
+    const htmlUrl = `http://127.0.0.1:${PORT}/api/paper/html?t=${token}`;
+    const outFile = path.join(os.tmpdir(), `mb-paper-${token}.pdf`);
+    execFile(browser, [
+      "--headless=new", "--disable-gpu", "--no-first-run", "--no-sandbox",
+      "--virtual-time-budget=5000", "--print-to-pdf-no-header",
+      `--print-to-pdf=${outFile}`, htmlUrl
+    ], { timeout: 60000, maxBuffer: 20 * 1024 * 1024, windowsHide: true }, (err) => {
+      paperStore.delete(token);
+      if (err) {
+        fs.unlink(outFile, () => {});
+        return reject(new Error("PDF 生成失败：" + String(err.message).slice(0, 200)));
+      }
+      fs.readFile(outFile, (e2, buf) => {
+        fs.unlink(outFile, () => {});
+        if (e2) return reject(e2);
+        resolve(buf);
+      });
     });
   });
 }
@@ -558,6 +692,63 @@ const server = http.createServer(async (req, res) => {
             source: "mock-server"
           });
         }
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (p === "/api/hot/items" && req.method === "GET") {
+      try {
+        const params = new URLSearchParams({
+          mode: "selected",
+          window: url.searchParams.get("window") || "24h",
+          limit: url.searchParams.get("limit") || "30"
+        });
+        if (url.searchParams.get("q")) params.set("q", url.searchParams.get("q"));
+        if (url.searchParams.get("category")) params.set("category", url.searchParams.get("category"));
+        sendJson(res, 200, await hotFetch("/items?" + params.toString()));
+      } catch (e) { sendJson(res, 502, { code: 50201, message: e.message }); }
+      return;
+    }
+    if (p === "/api/hot/topics" && req.method === "GET") {
+      try { sendJson(res, 200, await hotFetch("/hot-topics")); }
+      catch (e) { sendJson(res, 502, { code: 50201, message: e.message }); }
+      return;
+    }
+    if (p === "/api/hot/daily" && req.method === "GET") {
+      try { sendJson(res, 200, await hotFetch("/dailies/latest")); }
+      catch (e) { sendJson(res, 502, { code: 50201, message: e.message }); }
+      return;
+    }
+    if (p === "/api/paper/html" && req.method === "GET") {
+      const entry = paperStore.get(url.searchParams.get("t") || "");
+      if (!entry) { res.writeHead(404).end("404"); return; }
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(entry.html);
+      return;
+    }
+    if (p === "/api/paper/pdf" && req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const buf = await generatePdfFromHtml(buildPaperHtml(body));
+        res.writeHead(200, {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="paper-${Date.now()}.pdf"`
+        });
+        res.end(buf);
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (p === "/api/bookmark/file" && req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const name = String(body.name || "file.pdf");
+        const buf = Buffer.from(String(body.dataUrl || "").split(",")[1] || "", "base64");
+        if (!buf.length) return sendJson(res, 400, { code: 40001, message: "文件数据为空" });
+        const dir = path.join(ROOT, "uploads");
+        fs.mkdirSync(dir, { recursive: true });
+        const ext = path.extname(name).toLowerCase().slice(0, 10) || ".pdf";
+        const safe = "bm-" + crypto.randomBytes(8).toString("hex") + ext;
+        fs.writeFileSync(path.join(dir, safe), buf);
+        sendJson(res, 200, { ok: true, url: "/uploads/" + safe, name });
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
     }

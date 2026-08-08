@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · API 服务层（前后端接口契约 v1.0.0）
+   个人工作台 · API 服务层（前后端接口契约 v1.13.0）
    ------------------------------------------------------------
    本文件是前后端的唯一接口契约。业务代码只通过 window.API 访问
    OCR / 数据 / 去重，不直接读写 localStorage 或 fetch。
@@ -271,6 +271,71 @@
         return res.json();
       }
       return { status: "done", result: null };
+    },
+
+    /* ================= AI HOT 资讯（服务端代理，60s 缓存） ================= */
+
+    /** 热点资讯列表（window: 24h | 7d，可带 q / category） */
+    async hotItems(opts = {}) {
+      const params = new URLSearchParams();
+      if (opts.window) params.set("window", opts.window);
+      if (opts.q) params.set("q", opts.q);
+      if (opts.category) params.set("category", opts.category);
+      if (opts.limit) params.set("limit", opts.limit);
+      const res = await fetch(`${this.base}/hot/items?${params.toString()}`);
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error((j && j.message) || `AI HOT 请求失败 ${res.status}`);
+      }
+      return res.json();
+    },
+
+    /** 当前最热话题 */
+    async hotTopics() {
+      const res = await fetch(`${this.base}/hot/topics`);
+      if (!res.ok) throw new Error(`AI HOT 请求失败 ${res.status}`);
+      return res.json();
+    },
+
+    /** 最新 AI 日报 */
+    async hotDaily() {
+      const res = await fetch(`${this.base}/hot/daily`);
+      if (!res.ok) throw new Error(`AI HOT 请求失败 ${res.status}`);
+      return res.json();
+    },
+
+    /* ================= 试卷 PDF 导出 ================= */
+
+    /**
+     * 生成试卷 PDF（服务端用本机 Edge/Chrome 无头打印，KaTeX 渲染公式）。
+     * @param {Object} paper { title, subtitle, answers, questions: [{ type, titleTex, solutionTex }] }
+     * @returns {Promise<ArrayBuffer>} PDF 字节
+     */
+    async exportPaper(paper) {
+      const res = await fetch(`${this.base}/paper/pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(paper)
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error((j && j.message) || `PDF 导出失败 ${res.status}`);
+      }
+      return res.arrayBuffer();
+    },
+
+    /* ================= 收藏夹文件上传 ================= */
+
+    /** 上传收藏文件（PDF 等），返回可访问的 URL */
+    async uploadBookmarkFile(name, dataUrl) {
+      const res = await fetch(`${this.base}/bookmark/file`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, dataUrl })
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((j && j.message) || `文件上传失败 ${res.status}`);
+      return j;
     },
 
     /* ================= 去重检测 ================= */

@@ -90,6 +90,8 @@ try {
     personal.goals.push({ id: nextTodoId(), title: "毕业论文开题", category: "科研", progress: 18, milestone: "完成变量关系图与第一版研究假设", targetDate: "2026-11-30", status: "active", linkedTodoIds: [], milestones: [{ id: 3, title: "完成变量关系图", done: true }, { id: 4, title: "完成第一版研究假设", done: false }], note: "", createdAt: Date.now() - 20 * 86400000 });
     personal.inbox.push({ id: nextTodoId(), text: "周三前给导师发开题初稿", tags: ["论文"], status: "open", createdAt: Date.now() - 3600000 });
     personal.inbox.push({ id: nextTodoId(), text: "整理概率论错题到错题本", tags: ["高数"], status: "open", createdAt: Date.now() - 86400000 });
+    personal.bookmarks.push({ id: nextTodoId(), title: "高数考研大纲 PDF", kind: "pdf", url: "/uploads/bm-demo.pdf", note: "2026 考研数学大纲，重点关注级数与多元积分", tags: ["高数", "考研"], createdAt: Date.now() - 86400000 });
+    personal.bookmarks.push({ id: nextTodoId(), title: "KaTeX 官方文档", kind: "link", url: "https://katex.org/docs/supported.html", note: "写公式时查语法", tags: ["工具"], createdAt: Date.now() - 2 * 86400000 });
     personal.reviews.unshift({ day: dayKey(0), done: "复习高数极限 + 录入 5 道错题", stuck: "级数敛散性判断还不熟", plan: "上午线代矩阵，下午 408 数据结构", mood: "🙂", stats: { studySec: 7200, added: 5, reviewed: 9, todoDone: 2, todoTotal: 4 }, updatedAt: Date.now() });
     personal.reviews.unshift({ day: dayKey(-1), done: "完成英语阅读 2 篇", stuck: "论文选题还没定", plan: "查资料定方向", mood: "😐", stats: { studySec: 5400, added: 2, reviewed: 6, todoDone: 1, todoTotal: 3 }, updatedAt: Date.now() - 86400000 });
     persistLocal();
@@ -110,12 +112,16 @@ try {
   await shot(call, ws, "calendar");
   await evalJS(`go("daily"); true`); await sleep(500);
   await shot(call, ws, "daily");
+  await evalJS(`go("hot"); loadHot(); true`); await sleep(3000);
+  await shot(call, ws, "hot");
+  await evalJS(`go("bookmarks"); true`); await sleep(500);
+  await shot(call, ws, "bookmarks");
   await evalJS(`go("dashboard"); true`); await sleep(500);
   await shot(call, ws, "dashboard-overview");
 
   const diag = await evalJS(`(() => ({
     noHScroll: document.documentElement.scrollWidth <= window.innerWidth,
-    views: ["todos","goals","summary","inbox","calendar","daily"].map(v => !!document.getElementById("view-" + v))
+    views: ["todos","goals","summary","inbox","calendar","daily","hot","bookmarks"].map(v => !!document.getElementById("view-" + v))
   }))()`);
   console.log(which + " PERSONAL DIAG: " + JSON.stringify(diag));
   ws.close();

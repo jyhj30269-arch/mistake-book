@@ -1,6 +1,7 @@
-/* v1.12.0 个人工作台功能检查：node verify-personal.mjs
+/* v1.13.0 个人工作台功能检查：node verify-personal.mjs
    覆盖：仪表盘总览 / 待办升级（快速解析·子任务·看板）/ 目标升级（里程碑·挂待办）/
-   收件箱（转待办）/ 日历 / 复盘自动附带数据 / 周月总结（心情趋势）/ 健康移除 / 持久化 */
+   收件箱（转待办）/ 日历 / 复盘自动附带数据 / 周月总结（心情趋势）/
+   复习三级筛选 / 收藏夹 / 热点资讯 / 试卷导出 / 健康移除 / 持久化 */
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -87,11 +88,13 @@ try {
   check("品牌名 = 个人工作台", nav.brand === "个人工作台");
   check("浏览器标题 = 个人工作台", nav.title.includes("个人工作台"));
   check("侧边栏分组 = 总览/计划与复盘/学习/系统",
-    ["总览", "计划与复盘", "学习", "系统"].every(x => nav.groups.includes(x)));
+    ["总览", "计划与复盘", "学习", "资讯与资料", "系统"].every(x => nav.groups.includes(x)));
   check("新增收件箱/日历导航",
     nav.items.some(t => t.includes("收件箱")) && nav.items.some(t => t.includes("日历")));
   check("健康模块已移除",
     !nav.items.some(t => t.includes("健康")) && nav.noHealthNode);
+  check("新增热点资讯 / 收藏夹导航",
+    nav.items.some(t => t.includes("热点资讯")) && nav.items.some(t => t.includes("收藏夹")));
   check("移动 Tab 仍 5 项", nav.tabs.length === 5);
 
   // 2) 仪表盘总览
@@ -174,11 +177,51 @@ try {
   check("周月总结：渲染 4 卡", summary.cards === 4);
   check("周月总结：心情趋势区存在", summary.hasHealth);
 
-  // 9) 持久化：刷新后 personal 仍在
+  // 9) 复习科目三级筛选（科目 → 子科目 → 章节）
+  await evalJS(`go("dashboard"); renderReviewConfig(); true`);
+  const rev = await evalJS(`(() => ({
+    subjects: Array.from(document.querySelectorAll("#rev-subject option")).map(o => o.textContent),
+    subsubCount: document.querySelectorAll("#rev-subsub option").length,
+    subjectVal: reviewCfg.subject
+  }))()`);
+  check("复习：科目筛选含 数学/英语/408", rev.subjects.some(t => t.includes("数学")) && rev.subjects.some(t => t.includes("英语")) && rev.subjects.some(t => t.includes("408")));
+  check("复习：子科目联动渲染", rev.subsubCount > 0);
+  await evalJS(`document.getElementById("rev-subject").value = "subj-math"; document.getElementById("rev-subject").onchange({ target: { value: "subj-math" } }); true`);
+  const subOptions = await evalJS(`Array.from(document.querySelectorAll("#rev-subsub option")).map(o => o.textContent).join(",")`);
+  check("复习：选数学后子科目为高等数学等", subOptions.includes("高等数学"));
+
+  // 10) 收藏夹：添加链接收藏
+  await evalJS(`go("bookmarks"); document.getElementById("bm-title").value = "高数公式手册"; document.getElementById("bm-kind").value = "link"; document.getElementById("bm-url").value = "https://example.com/math.pdf"; document.getElementById("bm-tags").value = "高数 复习资料"; addBookmark(); true`);
+  const bm0 = await evalJS(`personal.bookmarks[0]`);
+  check("收藏夹：链接收藏成功", bm0.title === "高数公式手册" && bm0.kind === "link" && bm0.tags.includes("高数"));
+  check("收藏夹：列表渲染", await evalJS(`document.querySelectorAll("#bm-list .bm-item").length >= 1`));
+
+  // 11) 热点资讯页
+  await evalJS(`go("hot"); true`);
+  const hotDom = await evalJS(`(() => ({
+    tabs: Array.from(document.querySelectorAll("#hot-tabs .chip")).map(c => c.textContent.trim()),
+    hasList: !!document.getElementById("hot-list"),
+    fn: typeof loadHot === "function" && typeof setHotTab === "function"
+  }))()`);
+  check("热点资讯：4 个 Tab + 列表容器", hotDom.tabs.length === 4 && hotDom.hasList && hotDom.fn);
+  const hotLive = await evalJS(`API.hotItems({ window: "24h", limit: 3 }).then(d => (d.items || []).length).catch(() => -1)`);
+  check("热点资讯：AI HOT 接口可拉取", hotLive > 0);
+
+  // 12) 试卷导出弹窗
+  await evalJS(`openPaperExport(); true`);
+  const pp = await evalJS(`(() => ({
+    title: document.getElementById("modal-title").textContent,
+    num: document.getElementById("pp-num").value,
+    hasSubject: !!document.getElementById("pp-subject")
+  }))()`);
+  check("试卷导出：弹窗默认 12 题 + 科目筛选", pp.title.includes("导出试卷") && pp.num === "12" && pp.hasSubject);
+  await evalJS(`closeModal(); true`);
+
+  // 13) 持久化：刷新后 personal 仍在
   await call("Page.reload", { ignoreCache: true });
   await sleep(1800);
-  const after = await evalJS(`({ todos: personal.todos.length, goals: personal.goals.length, inbox: personal.inbox.length, reviews: personal.reviews.length })`);
-  check("刷新后个人数据持久化", after.todos === 2 && after.goals === 3 && after.inbox === 1 && after.reviews === 1);
+  const after = await evalJS(`({ todos: personal.todos.length, goals: personal.goals.length, inbox: personal.inbox.length, reviews: personal.reviews.length, bookmarks: personal.bookmarks.length })`);
+  check("刷新后个人数据持久化", after.todos === 2 && after.goals === 3 && after.inbox === 1 && after.reviews === 1 && after.bookmarks === 1);
 
   ws.close();
 } catch (e) {

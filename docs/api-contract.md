@@ -1,6 +1,6 @@
 # 考研错题本 · 前端 API 接口契约
 
-> 版本：v1.12.0 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
+> 版本：v1.13.0 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
 >
 > 本文件与 `../api.js` 一一对应。后端接入时按此契约实现同名方法即可，前端业务代码无需改动。
 
@@ -25,6 +25,11 @@
 | `saveAll(data)` | 整库对象 | 无 | 本地：写 localStorage；远端：由各写接口替代，可不实现 |
 | `ocrRecognize(image, opts)` | `image`（`{dataUrl,name}`）、`opts.isSolution` | `{ taskId, titleTex, solutionTex, lowConf, source, costSec }` | 提交单张图片 OCR；本地服务调用 MinerU 官方 CLI（pipeline，失败回退 flash） |
 | `ocrStatus(taskId)` | taskId | `{ status: "pending"\|"done"\|"failed", result? }` | 轮询 OCR 任务（Phase C 使用） |
+| `hotItems(opts)` | `{ window, q?, category?, limit? }` | AI HOT 资讯列表 | 服务端代理匿名请求 + 60s 缓存 |
+| `hotTopics()` | 无 | 最热话题列表 | 服务端代理 |
+| `hotDaily()` | 无 | 最新 AI 日报 | 服务端代理 |
+| `exportPaper(paper)` | `{ title, subtitle, answers, questions[] }` | PDF 字节（ArrayBuffer） | 本机 Edge/Chrome 无头打印，KaTeX 渲染 |
+| `uploadBookmarkFile(name, dataUrl)` | 文件名 + dataURL | `{ ok, url }` | 存本地 `uploads/`，静态可访问 |
 | `checkDuplicate(payload)` | `{ titleTex, subject, type, excludeId, pool? }` | 疑似重复题目数组 | 同科目同类型 + 7 天时间窗 + 中文 bigram Jaccard > 0.7；远端由后端查库 |
 | `listQuestions()` | 无 | 题目数组 | 题库列表 |
 | `saveQuestion(q)` | 题目对象 | `{ ok, id }` | 新增题目 |
@@ -79,11 +84,14 @@
                 "stats": { "studySec": 7200, "added": 5, "reviewed": 9, "todoDone": 2, "todoTotal": 4 },
                 "updatedAt": 1754000000000 }],
   "inbox": [{ "id": 3, "text": "周三前给导师发初稿", "tags": ["论文"], "status": "open", "createdAt": 1754000000000 }]
+  ,"bookmarks": [{ "id": 4, "title": "高数公式手册", "kind": "link", "url": "https://…",
+                    "note": "", "tags": ["高数"], "createdAt": 1754000000000 }]
 }
 ```
 
 - `todos.priority`：0 无 / 1 低 / 2 中 / 3 高；`goals.status`：active 进行中 / done 已完成 / paused 已搁置。
 - `goals.progress` 为手动兜底值：挂关联待办或里程碑后由前端按完成率自动计算。
+- `bookmarks.kind`：link 链接 / pdf 文件 / note 笔记；文件类 url 指向 `/uploads/`。
 - `health_logs` 表已随健康模块移除（老库启动时自动 DROP）。
 
 ### OCR 结果

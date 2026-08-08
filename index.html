@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.12.0 -->
+  <!-- 个人工作台 v1.13.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -76,6 +76,10 @@
         <a class="nav-item" data-view="input"><span class="icon">📸</span>识别录入</a>
         <a class="nav-item" data-view="questions"><span class="icon">🗂</span>题库</a>
 
+        <div class="nav-group">资讯与资料</div>
+        <a class="nav-item" data-view="hot"><span class="icon">🔥</span>热点资讯</a>
+        <a class="nav-item" data-view="bookmarks"><span class="icon">🔖</span>收藏夹</a>
+
         <div class="nav-group">系统</div>
         <a class="nav-item" data-view="settings"><span class="icon">⚙️</span>设置</a>
 
@@ -102,32 +106,9 @@
             </div>
           </div>
 
-          <div class="grid grid-4">
-            <div class="stat-card">
-              <div class="stat-label">未掌握题目</div>
-              <div class="stat-value" id="stats-unmastered">0</div>
-              <div class="stat-delta" id="stats-unmastered-delta"></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">总题数 / 已完全掌握</div>
-              <div class="stat-value" id="stats-total">0</div>
-              <div class="stat-delta" id="stats-total-delta"></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">错误轨道</div>
-              <div class="stat-value" id="stats-err">0</div>
-              <div class="stat-delta" id="stats-err-delta"></div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-label">累计学习时长（分钟）</div>
-              <div class="stat-value" id="stats-time">0</div>
-              <div class="stat-delta" id="stats-avg">平均复习 0 次 / 题</div>
-            </div>
-          </div>
-
           <div id="dash-greeting"></div>
-          <div class="grid grid-4 mt-16" id="ov-grid"></div>
           <div class="grid grid-2 mt-16" id="dash-quick"></div>
+          <div class="grid grid-4 mt-16" id="ov-grid"></div>
 
           <div class="grid grid-2 mt-16">
             <div class="card">
@@ -140,26 +121,34 @@
             </div>
           </div>
 
-          <div class="card mt-16">
-            <div class="card-head"><div class="card-title">🕘 最近动态</div><span class="small muted">录入 / 复习 / 复盘</span></div>
-            <div id="dash-feed"></div>
-          </div>
-
-          <div class="card mt-16">
-            <div class="card-head">
-              <div class="card-title">🎯 今日推荐复习</div>
-              <span class="card-more" onclick="goDashSection('review')">去复习 →</span>
+          <div class="grid grid-2 mt-16">
+            <div class="card">
+              <div class="card-head"><div class="card-title">🕘 最近动态</div><span class="small muted">录入 / 复习 / 复盘</span></div>
+              <div id="dash-feed"></div>
             </div>
-            <div class="flex-between">
-              <div>
-                <div class="stat-value" style="font-size:22px;"><span id="rec-count">0</span> 道</div>
-                <div class="small muted" id="rec-desc"></div>
+            <div class="card">
+              <div class="card-head">
+                <div class="card-title">🎯 今日推荐复习</div>
+                <span class="card-more" onclick="goDashSection('review')">去复习 →</span>
               </div>
-              <button class="btn btn-primary btn-lg" onclick="startReviewFromRec()">开始复习</button>
+              <div class="grid grid-4 dash-mini-stats">
+                <div class="stat-card"><div class="stat-label">未掌握</div><div class="stat-value" id="stats-unmastered">0</div><div class="stat-delta" id="stats-unmastered-delta"></div></div>
+                <div class="stat-card"><div class="stat-label">总题数</div><div class="stat-value" id="stats-total">0</div><div class="stat-delta" id="stats-total-delta"></div></div>
+                <div class="stat-card"><div class="stat-label">错误轨道</div><div class="stat-value" id="stats-err">0</div><div class="stat-delta" id="stats-err-delta"></div></div>
+                <div class="stat-card"><div class="stat-label">累计时长（分）</div><div class="stat-value" id="stats-time">0</div><div class="stat-delta" id="stats-avg">平均 0 次/题</div></div>
+              </div>
+              <div class="divider"></div>
+              <div class="flex-between">
+                <div>
+                  <div class="stat-value" style="font-size:22px;"><span id="rec-count">0</span> 道</div>
+                  <div class="small muted" id="rec-desc"></div>
+                </div>
+                <button class="btn btn-primary btn-lg" onclick="startReviewFromRec()">开始复习</button>
+              </div>
+              <div class="divider"></div>
+              <div class="card-title small mb-16">推荐题目预览（前 5）</div>
+              <div id="rec-panel" style="display:flex;flex-direction:column;gap:10px;"></div>
             </div>
-            <div class="divider"></div>
-            <div class="card-title small mb-16">推荐题目预览（前 5）</div>
-            <div id="rec-panel" style="display:flex;flex-direction:column;gap:10px;"></div>
           </div>
 
           <!-- ========== 随机复习（并入仪表盘） ========== -->
@@ -175,10 +164,14 @@
           </div>
           <div class="card" id="review-config">
             <div class="card-head"><div class="card-title">抽题配置</div><span class="tag">可记忆默认抽题数量（设置页修改）</span></div>
-            <div class="grid grid-2">
+            <div class="grid grid-3">
+              <div class="field">
+                <label>科目</label>
+                <select class="select" id="rev-subject"></select>
+              </div>
               <div class="field">
                 <label>子科目</label>
-                <select class="select" id="rev-subject"></select>
+                <select class="select" id="rev-subsub"></select>
               </div>
               <div class="field">
                 <label>章节范围</label>
@@ -450,6 +443,7 @@
                 <input id="q-search" placeholder="搜索题面 / 解析 / 知识点…" onkeydown="if(event.key==='Enter')renderQuestions()" />
               </div>
               <button class="btn" onclick="goSearch()">搜索</button>
+              <button class="btn" onclick="openPaperExport()">📄 导出试卷</button>
             </div>
           </div>
 
@@ -532,7 +526,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.12.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.13.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
@@ -777,6 +771,79 @@
             <div class="card-head"><div class="card-title">历史复盘</div><span class="tag">最近 7 天</span></div>
             <div id="rv-history"></div>
           </div>
+        </section>
+
+        <!-- ========== 热点资讯（AI HOT） ========== -->
+        <section id="view-hot" style="display:none;">
+          <div class="topbar">
+            <div>
+              <div class="page-title">🔥 热点资讯</div>
+              <div class="page-sub" id="hot-sub">AI 圈动态 · 数据来源：AI HOT</div>
+            </div>
+            <div class="flex">
+              <button class="btn" onclick="loadHot()">↻ 刷新</button>
+            </div>
+          </div>
+          <div class="flex mb-16" id="hot-tabs">
+            <span class="chip on" data-v="today" onclick="setHotTab('today')">过去 24 小时</span>
+            <span class="chip" data-v="week" onclick="setHotTab('week')">最近一周</span>
+            <span class="chip" data-v="topics" onclick="setHotTab('topics')">最热话题</span>
+            <span class="chip" data-v="daily" onclick="setHotTab('daily')">AI 日报</span>
+          </div>
+          <div id="hot-list" class="hot-list">
+            <div class="card"><div class="small muted">加载中…</div></div>
+          </div>
+          <div class="small muted mt-16">数据来源：<a href="https://aihot.virxact.com" target="_blank" rel="noopener">AI HOT</a> · 标题链接跳转原文，内容仅供参考。</div>
+        </section>
+
+        <!-- ========== 收藏夹 ========== -->
+        <section id="view-bookmarks" style="display:none;">
+          <div class="topbar">
+            <div>
+              <div class="page-title">🔖 收藏夹</div>
+              <div class="page-sub" id="bm-sub">收藏链接 / PDF / 资料，按标签归类</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="grid grid-3">
+              <div class="field">
+                <label>标题</label>
+                <input class="input" id="bm-title" placeholder="如：高数考研大纲 PDF" />
+              </div>
+              <div class="field">
+                <label>类型</label>
+                <select class="select" id="bm-kind">
+                  <option value="link">链接</option>
+                  <option value="pdf">PDF / 文件</option>
+                  <option value="note">笔记 / 备忘</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>标签（# 或空格分隔）</label>
+                <input class="input" id="bm-tags" placeholder="如：高数 复习资料" />
+              </div>
+            </div>
+            <div class="field">
+              <label>链接地址 或 本地上传文件</label>
+              <div class="flex" style="gap:8px;">
+                <input class="input" id="bm-url" placeholder="https://… 或选择文件后自动填入" style="flex:1;" />
+                <input type="file" id="bm-file" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.txt,.md,.zip" style="display:none;" onchange="handleBmFile(this.files)" />
+                <button class="btn" onclick="document.getElementById('bm-file').click()">📎 上传文件</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>备注（可选）</label>
+              <textarea class="textarea" id="bm-note" rows="2" placeholder="为什么收藏它、重点在哪…"></textarea>
+            </div>
+            <button class="btn btn-primary" onclick="addBookmark()">收藏</button>
+          </div>
+          <div class="flex mt-16 mb-8" id="bm-filter">
+            <span class="chip on" data-v="all" onclick="setBmFilter('all')">全部</span>
+            <span class="chip" data-v="link" onclick="setBmFilter('link')">链接</span>
+            <span class="chip" data-v="pdf" onclick="setBmFilter('pdf')">PDF / 文件</span>
+            <span class="chip" data-v="note" onclick="setBmFilter('note')">笔记</span>
+          </div>
+          <div id="bm-list"></div>
         </section>
       </main>
     </div>
