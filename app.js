@@ -1,6 +1,6 @@
 /* ============================================================
-   个人工作台 · 业务逻辑 v1.13.1
-   版本：v1.13.1（修复：快速添加周几日期/吞字、AI 日报、移动端入口、备份个人数据、重置、上传白名单等）
+   个人工作台 · 业务逻辑 v1.13.2
+   版本：v1.13.2（修复：批量归类全链路、知识点导航筛选生效、横向树布局、补齐 questions/ocr-status 接口）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
    仪表盘总览（问候/概览卡/快捷入口/目标进度/今日待办/最近动态）/
    今日待办（子任务/优先级/标签/提醒/列表看板/快速添加解析）/
@@ -106,7 +106,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.13.1";
+const APP_VERSION = "1.13.2";
 
 const TREE = [
   {
@@ -1025,6 +1025,15 @@ function filteredQuestions() {
     if (filters.uncat && q.kps.length) return false;
     if (filters.dup && dupCountFor(q) === 0) return false;
     if (filters.mark && !q.marks[filters.mark]) return false;
+    const tf = window.__treeFilter || {};
+    if (tf.sub === "uncat") {
+      if (q.kps.length) return false;
+    } else if (tf.sub && tf.sub !== "all") {
+      if (q.subject !== tf.sub) return false;
+      if (tf.subsub && tf.subsub !== "all" && q.subSubject !== tf.subsub) return false;
+      if (tf.chapter && tf.chapter !== "all" && q.chapter !== tf.chapter) return false;
+      if (tf.kp && tf.kp !== "all" && !q.kps.includes(tf.kp)) return false;
+    }
     if (kw) {
       const hay = (q.titleTex + " " + q.solutionTex + " " + q.kps.join(" ") + " " + TAGS.filter(t => q.tags.includes(t.key)).map(t => t.name).join(" ")).toLowerCase();
       if (!hay.includes(kw)) return false;
@@ -1034,44 +1043,60 @@ function filteredQuestions() {
 }
 
 function renderTree() {
+  const card = $("#q-tree-card");
   const box = $("#q-tree");
-  if (!treeMode) { box.closest("#q-tree-card").style.display = "none"; $("#q-layout").style.gridTemplateColumns = "1fr"; return; }
-  box.closest("#q-tree-card").style.display = "";
-  $("#q-layout").style.gridTemplateColumns = "250px 1fr";
+  if (!treeMode || !card) { if (card) card.style.display = "none"; return; }
+  card.style.display = "";
+  const tf = window.__treeFilter || {};
   const countOf = sub => questions.filter(q => q.subject === sub.id || TREE.find(s => s.id === q.subject) === sub).length;
-  box.innerHTML = `
-    <div class="tree-node" data-sub="all" onclick="treePick(this)"><span>🗂</span>全部 <span class="count">${questions.length}</span></div>
-    <div class="tree-node" data-sub="uncat" onclick="treePick(this)"><span>∅</span>未分类 <span class="count">${questions.filter(q => !q.kps.length).length}</span></div>
-    ${TREE.map(s => `
-      <div class="tree-node" data-sub="${s.id}" onclick="treePick(this)"><span>${s.name === "数学" ? "📐" : s.name === "英语" ? "🇬🇧" : "💻"}</span>${esc(s.name)} <span class="count">${countOf(s)}</span></div>
-      <div class="tree-children">
-        ${s.children.map(c => `
-          <div class="tree-node" data-subsub="${c.id}" onclick="treePick(this)"><span>∟</span>${esc(c.name)} <span class="count">${questions.filter(q => q.subSubject === c.id).length}</span></div>
-          <div class="tree-children" style="display:none;" data-extra="1">
-            ${c.children.map(ch => `
-              <div class="tree-node" data-chapter="${ch.id}" onclick="treePick(this)"><span>∟</span>${esc(ch.name)} <span class="count">${questions.filter(q => q.chapter === ch.id).length}</span></div>
-            `).join("")}
-          </div>`).join("")}
-      </div>`).join("")}`;
-  // 点击子科目展开章节（默认两级，点击展开第三级）
-  $$("#q-tree [data-subsub]").forEach(n => n.addEventListener("click", e => {
-    e.stopPropagation();
-    const extra = n.nextElementSibling;
-    if (extra && extra.dataset.extra) extra.style.display = extra.style.display === "none" ? "" : "none";
-  }));
+  const subjSel = tf.sub && tf.sub !== "all" && tf.sub !== "uncat" ? TREE.find(s => s.id === tf.sub) : null;
+  const subsubSel = subjSel && tf.subsub && tf.subsub !== "all" ? subjSel.children.find(c => c.id === tf.subsub) : null;
+  const chapterSel = subsubSel && tf.chapter && tf.chapter !== "all" ? subsubSel.children.find(ch => ch.id === tf.chapter) : null;
+  const chip = (data, label, count, active) =>
+    `<span class="chip htree-chip${active ? " active" : ""}" ${data} onclick="treePick(this)">${label}${count != null ? ` <span class="count">${count}</span>` : ""}</span>`;
+  const rows = [];
+  rows.push(`<div class="htree-row"><span class="htree-label">科目</span>` +
+    chip(`data-sub="all"`, "🗂 全部", questions.length, !tf.sub || tf.sub === "all") +
+    chip(`data-sub="uncat"`, "∅ 未分类", questions.filter(q => !q.kps.length).length, tf.sub === "uncat") +
+    TREE.map(s => chip(`data-sub="${s.id}"`, (s.name === "数学" ? "📐 " : s.name === "英语" ? "🇬🇧 " : "💻 ") + esc(s.name), countOf(s), tf.sub === s.id)).join("") +
+    `</div>`);
+  if (subjSel) {
+    rows.push(`<div class="htree-row"><span class="htree-label">子科目</span>` +
+      chip(`data-subsub="all"`, "全部", null, !tf.subsub || tf.subsub === "all") +
+      subjSel.children.map(c => chip(`data-subsub="${c.id}"`, esc(c.name), questions.filter(q => q.subSubject === c.id).length, tf.subsub === c.id)).join("") +
+      `</div>`);
+  }
+  if (subsubSel) {
+    rows.push(`<div class="htree-row"><span class="htree-label">章节</span>` +
+      chip(`data-chapter="all"`, "全部", null, !tf.chapter || tf.chapter === "all") +
+      subsubSel.children.map(ch => chip(`data-chapter="${ch.id}"`, esc(ch.name), questions.filter(q => q.chapter === ch.id).length, tf.chapter === ch.id)).join("") +
+      `</div>`);
+  }
+  if (chapterSel) {
+    rows.push(`<div class="htree-row"><span class="htree-label">知识点</span>` +
+      chip(`data-kp="all"`, "全部", null, !tf.kp || tf.kp === "all") +
+      chapterSel.children.map(k => chip(`data-kp="${esc(k)}"`, esc(k), questions.filter(q => q.kps.includes(k)).length, tf.kp === k)).join("") +
+      `</div>`);
+  }
+  box.innerHTML = rows.join("");
 }
 
 function treePick(el) {
-  $$("#q-tree .tree-node").forEach(x => x.classList.remove("active"));
+  $$(".htree-chip").forEach(x => x.classList.remove("active"));
   el.classList.add("active");
-  const sub = el.dataset.sub, subsub = el.dataset.subsub, chapter = el.dataset.chapter;
-  window.__treeFilter = { sub, subsub, chapter };
+  const tf = window.__treeFilter || {};
+  if (el.dataset.sub !== undefined) { tf.sub = el.dataset.sub; tf.subsub = undefined; tf.chapter = undefined; tf.kp = undefined; }
+  else if (el.dataset.subsub !== undefined) { tf.subsub = el.dataset.subsub; tf.chapter = undefined; tf.kp = undefined; }
+  else if (el.dataset.chapter !== undefined) { tf.chapter = el.dataset.chapter; tf.kp = undefined; }
+  else if (el.dataset.kp !== undefined) { tf.kp = el.dataset.kp; }
+  window.__treeFilter = tf;
+  renderTree();
   renderQuestions();
 }
 
 function toggleTree() {
   treeMode = !treeMode;
-  $("#q-tree-btn").textContent = treeMode ? "🌲 树形视图" : "☰ 列表视图";
+  $("#q-tree-btn").textContent = treeMode ? "☰ 列表视图" : "🌲 树形视图";
   renderTree();
   renderQuestions();
 }
@@ -1132,24 +1157,69 @@ function toggleMark(id, key, el) {
 function batchClassify() {
   const sel = questions.filter(q => qSel.has(q.id));
   if (!sel.length) return;
-  const kpOptions = TREE.flatMap(s => s.children).flatMap(c => c.children).map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join("");
   openModal(`批量归类（已选 ${sel.length} 题）`, `
-    <div class="field">
-      <label>一次性指定知识点</label>
-      <select class="select" id="bc-kp"><option value="">未分类</option>${kpOptions}</select>
+    <div class="small muted mb-16">没动的项保持原值：只选科目 → 只改科目；只勾知识点 → 只改知识点。</div>
+    <div class="grid grid-2">
+      <div class="field"><label>科目</label><select class="select" id="bc-subject"><option value="">（保持不变）</option>${TREE.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></div>
+      <div class="field"><label>子科目</label><select class="select" id="bc-subsub"><option value="">（保持不变）</option></select></div>
     </div>
-    <div class="small muted">弥补"录入时不强制分类"：未分类列表多选 → 一键归类</div>`,
+    <div class="field">
+      <label>章节</label>
+      <select class="select" id="bc-chapter"><option value="">（保持不变）</option></select>
+    </div>
+    <div class="field">
+      <label>知识点（勾选覆盖，不勾保持原值）</label>
+      <div class="flex" id="bc-kps" style="flex-wrap:wrap;"><span class="small muted">选完章节后这里会出现知识点</span></div>
+    </div>
+    <label class="flex mt-8" style="gap:8px;cursor:pointer;"><input type="checkbox" id="bc-uncat" /> 全部设为「未分类」（清空知识点；未分类 = 无知识点）</label>`,
     `<button class="btn" onclick="closeModal()">取消</button>
      <button class="btn btn-primary" onclick="doBatchClassify()">应用</button>`
   );
+  $("#bc-subject").onchange = fillBcSub;
+  $("#bc-subsub").onchange = fillBcChapter;
+  $("#bc-chapter").onchange = fillBcChapter;
+  fillBcSub();
 }
+
+function fillBcSub() {
+  const subj = TREE.find(s => s.id === $("#bc-subject").value);
+  $("#bc-subsub").innerHTML = `<option value="">（保持不变）</option>` +
+    (subj ? subj.children.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("") : "");
+  fillBcChapter();
+}
+
+function fillBcChapter() {
+  const ss = TREE.flatMap(s => s.children).find(c => c.id === $("#bc-subsub").value);
+  const prev = $("#bc-chapter").value;
+  $("#bc-chapter").innerHTML = `<option value="">（保持不变）</option>` +
+    (ss ? ss.children.map(ch => `<option value="${ch.id}">${esc(ch.name)}</option>`).join("") : "");
+  $("#bc-chapter").value = ss && ss.children.some(ch => ch.id === prev) ? prev : "";
+  const kps = ss ? ss.children.find(ch => ch.id === $("#bc-chapter").value) : null;
+  const wrap = $("#bc-kps");
+  wrap.innerHTML = kps
+    ? kps.children.map(k => `<span class="chip" data-k="${esc(k)}" onclick="this.classList.toggle('on')">${esc(k)}</span>`).join("")
+    : `<span class="small muted">${ss ? "选完章节后这里会出现知识点" : "先选 科目 → 子科目 → 章节"}</span>`;
+}
+
 function doBatchClassify() {
-  const kp = $("#bc-kp").value;
-  questions.filter(q => qSel.has(q.id)).forEach(q => { q.kps = kp ? [kp] : []; });
+  const subj = $("#bc-subject").value;
+  const subsub = $("#bc-subsub").value;
+  const chapter = $("#bc-chapter").value;
+  const kps = $$("#bc-kps .chip.on").map(c => c.dataset.k);
+  const uncat = $("#bc-uncat").checked;
+  const selected = questions.filter(q => qSel.has(q.id));
+  const n = selected.length;
+  selected.forEach(q => {
+    if (subj) q.subject = subj;
+    if (subsub) q.subSubject = subsub;
+    if (chapter) q.chapter = chapter;
+    if (kps.length) q.kps = kps.slice();
+    if (uncat) q.kps = [];
+  });
   qSel.clear();
   persistLocal();
   closeModal();
-  toast(`已归类 ${questions.filter(q => q.kps.includes(kp)).length} 题到「${kp || "未分类"}」`, "success");
+  toast(`已归类 ${n} 题`, "success");
   renderQuestions();
 }
 

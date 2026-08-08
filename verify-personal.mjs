@@ -234,7 +234,34 @@ try {
   check("试卷导出：弹窗默认 12 题 + 科目筛选", pp.title.includes("导出试卷") && pp.num === "12" && pp.hasSubject);
   await evalJS(`closeModal(); true`);
 
-  // 13) 持久化：刷新后 personal 仍在
+  // 13) 知识点导航：横向布局 + 筛选真正生效
+  await evalJS(`go("questions"); true`); await sleep(400);
+  const htree = await evalJS(`document.querySelectorAll(".htree-row").length >= 1 && !!document.querySelector(".htree-chip")`);
+  check("知识点导航：横向布局渲染", htree);
+  await evalJS(`(() => { const el = document.createElement("span"); el.setAttribute("data-sub", "subj-math"); treePick(el); })(); true`);
+  const treeFilter = await evalJS(`(() => { const list = filteredQuestions(); return { count: list.length, allMath: list.length > 0 && list.every(q => q.subject === "subj-math") }; })()`);
+  check("知识点导航：选数学后列表真正过滤", treeFilter.allMath);
+
+  // 14) 批量归类：科目/子科目/章节/知识点全链路
+  await evalJS(`qSel.clear(); toggleSelectAll({ checked: true }); batchClassify(); true`);
+  await evalJS(`document.getElementById("bc-subject").value = "subj-math"; document.getElementById("bc-subject").onchange({ target: { value: "subj-math" } }); true`);
+  const bcSubs = await evalJS(`Array.from(document.querySelectorAll("#bc-subsub option")).map(o => o.textContent).join(",")`);
+  check("批量归类：选科目后子科目联动", bcSubs.includes("高等数学"));
+  await evalJS(`document.getElementById("bc-subsub").value = "ss-gaoshu"; document.getElementById("bc-subsub").onchange({ target: { value: "ss-gaoshu" } }); true`);
+  await evalJS(`document.getElementById("bc-chapter").value = "ch-c1"; document.getElementById("bc-chapter").onchange({ target: { value: "ch-c1" } }); true`);
+  const bcKps = await evalJS(`Array.from(document.querySelectorAll("#bc-kps .chip")).map(c => c.textContent).join(",")`);
+  check("批量归类：知识点选项为真实名称（非 [object Object]）", bcKps.length > 0 && !bcKps.includes("object"));
+  await evalJS(`$$("#bc-kps .chip")[0].classList.add("on"); true`);
+  const bcSelected = await evalJS(`Array.from(qSel)`);
+  await evalJS(`doBatchClassify(); true`);
+  const bcDone = await evalJS(`(() => {
+    const sel = ${JSON.stringify(bcSelected)};
+    const picked = questions.filter(q => sel.includes(q.id));
+    return { n: picked.length, allClassified: picked.length > 0 && picked.every(q => q.subject === "subj-math" && q.subSubject === "ss-gaoshu" && q.chapter === "ch-c1" && q.kps.length === 1), selCleared: qSel.size === 0 };
+  })()`);
+  check("批量归类：科目/子科目/章节/知识点全部应用", bcDone.n > 0 && bcDone.allClassified && bcDone.selCleared);
+
+  // 15) 持久化：刷新后 personal 仍在
   await call("Page.reload", { ignoreCache: true });
   await sleep(1800);
   const after = await evalJS(`({ todos: personal.todos.length, goals: personal.goals.length, inbox: personal.inbox.length, reviews: personal.reviews.length, bookmarks: personal.bookmarks.length })`);

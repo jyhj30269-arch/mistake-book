@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.13.1）
+   个人工作台 · 本地服务（v1.13.2）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
    ============================================================ */
@@ -620,6 +620,7 @@ const server = http.createServer(async (req, res) => {
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
     }
+    if (p === "/api/questions" && req.method === "GET") { sendJson(res, 200, { data: readQuestions() }); return; }
     if (p === "/api/questions" && req.method === "POST") {
       try {
         const body = await readBody(req);
@@ -704,6 +705,11 @@ const server = http.createServer(async (req, res) => {
           });
         }
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (p === "/api/ocr/status" && req.method === "GET") {
+      // 本地服务 OCR 为同步返回，轮询接口恒为 done
+      sendJson(res, 200, { status: "done", result: null });
       return;
     }
     if (p === "/api/hot/items" && req.method === "GET") {
