@@ -6,17 +6,33 @@ const TREE = [
       {
         id: "ss-gaoshu", name: "高等数学", children: [
           { id: "ch-c1", name: "第 1 章 函数、极限与连续", children: ["极限计算", "连续性讨论"] },
+          { id: "ch-c2", name: "第 2 章 一元函数微分学", children: ["导数与微分", "微分中值定理", "导数应用"] },
           { id: "ch-c3", name: "第 3 章 一元函数积分学", children: ["定积分计算", "分部积分"] },
-          { id: "ch-c5", name: "第 5 章 多元函数积分学（仅数一）", children: ["二重积分"] }
+          { id: "ch-c4", name: "第 4 章 无穷级数（数一/数三）", children: ["常数项级数", "幂级数", "傅里叶级数"] },
+          { id: "ch-c5", name: "第 5 章 多元函数微积分学（积分部分仅数一）", children: ["多元函数微分学", "二重积分", "三重积分与曲线曲面积分"] },
+          { id: "ch-c6", name: "第 6 章 常微分方程", children: ["一阶微分方程", "二阶常系数线性方程"] }
         ]
       },
       {
         id: "ss-xdai", name: "线性代数", children: [
+          { id: "ch-l1", name: "第 1 章 行列式", children: ["行列式的计算", "克拉默法则"] },
           { id: "ch-l2", name: "第 2 章 矩阵", children: ["矩阵的秩", "逆矩阵"] },
-          { id: "ch-l5", name: "第 5 章 特征值与特征向量", children: ["相似对角化"] }
+          { id: "ch-l3", name: "第 3 章 向量", children: ["向量组的线性相关性", "向量组的秩"] },
+          { id: "ch-l4", name: "第 4 章 线性方程组", children: ["齐次方程组解的结构", "非齐次方程组解的判定"] },
+          { id: "ch-l5", name: "第 5 章 特征值与特征向量", children: ["相似对角化"] },
+          { id: "ch-l6", name: "第 6 章 二次型", children: ["二次型标准化", "正定二次型"] }
         ]
       },
-      { id: "ss-gailv", name: "概率论与数理统计", children: [{ id: "ch-p1", name: "第 1 章 随机事件与概率", children: ["全概率与贝叶斯公式"] }] }
+      {
+        id: "ss-gailv", name: "概率论与数理统计", children: [
+          { id: "ch-p1", name: "第 1 章 随机事件与概率", children: ["全概率与贝叶斯公式"] },
+          { id: "ch-p2", name: "第 2 章 一维随机变量及其分布", children: ["常见分布", "分布函数"] },
+          { id: "ch-p3", name: "第 3 章 多维随机变量及其分布", children: ["联合分布与边缘分布", "随机变量的独立性"] },
+          { id: "ch-p4", name: "第 4 章 随机变量的数字特征", children: ["期望与方差", "协方差与相关系数"] },
+          { id: "ch-p5", name: "第 5 章 大数定律与中心极限定理", children: ["切比雪夫不等式", "中心极限定理"] },
+          { id: "ch-p6", name: "第 6 章 数理统计", children: ["抽样分布", "参数估计"] }
+        ]
+      }
     ]
   },
   {
@@ -28,8 +44,47 @@ const TREE = [
   },
   {
     id: "subj-408", name: "408", children: [
-      { id: "ss-ds", name: "数据结构", children: [{ id: "ch-d6", name: "第 6 章 查找", children: ["B 树与 B+ 树"] }] },
-      { id: "ss-net", name: "计算机网络", children: [{ id: "ch-n5", name: "第 5 章 传输层", children: ["TCP 可靠传输"] }] }
+      {
+        id: "ss-ds", name: "数据结构", children: [
+          { id: "ch-d1", name: "第 1 章 线性表", children: ["顺序表与链表"] },
+          { id: "ch-d2", name: "第 2 章 栈、队列和数组", children: ["栈与队列", "特殊矩阵的压缩存储"] },
+          { id: "ch-d3", name: "第 3 章 串", children: ["模式匹配 KMP"] },
+          { id: "ch-d4", name: "第 4 章 树与二叉树", children: ["二叉树遍历", "二叉排序树", "哈夫曼树"] },
+          { id: "ch-d5", name: "第 5 章 图", children: ["图的遍历", "最小生成树", "最短路径", "拓扑排序"] },
+          { id: "ch-d6", name: "第 6 章 查找", children: ["B 树与 B+ 树", "散列表"] },
+          { id: "ch-d7", name: "第 7 章 排序", children: ["插入排序", "交换排序", "选择排序", "归并与基数排序"] }
+        ]
+      },
+      {
+        id: "ss-co", name: "计算机组成原理", children: [
+          { id: "ch-co1", name: "第 1 章 计算机系统概述", children: ["冯·诺依曼结构", "性能指标"] },
+          { id: "ch-co2", name: "第 2 章 数据的表示和运算", children: ["原码反码补码", "浮点数表示"] },
+          { id: "ch-co3", name: "第 3 章 存储系统", children: ["Cache 与主存", "虚拟存储器"] },
+          { id: "ch-co4", name: "第 4 章 指令系统", children: ["寻址方式", "指令格式"] },
+          { id: "ch-co5", name: "第 5 章 中央处理器", children: ["数据通路", "指令流水线"] },
+          { id: "ch-co6", name: "第 6 章 总线", children: ["总线仲裁", "总线定时"] },
+          { id: "ch-co7", name: "第 7 章 输入/输出系统", children: ["中断系统", "DMA 方式"] }
+        ]
+      },
+      {
+        id: "ss-os", name: "操作系统", children: [
+          { id: "ch-os1", name: "第 1 章 操作系统概述", children: ["操作系统特征与功能"] },
+          { id: "ch-os2", name: "第 2 章 进程与线程", children: ["进程同步与互斥", "死锁", "处理机调度"] },
+          { id: "ch-os3", name: "第 3 章 内存管理", children: ["分页与分段", "虚拟内存"] },
+          { id: "ch-os4", name: "第 4 章 文件管理", children: ["文件目录", "磁盘调度"] },
+          { id: "ch-os5", name: "第 5 章 输入/输出管理", children: ["IO 控制方式", "设备分配"] }
+        ]
+      },
+      {
+        id: "ss-net", name: "计算机网络", children: [
+          { id: "ch-n1", name: "第 1 章 计算机网络体系结构", children: ["OSI 与 TCP/IP 模型"] },
+          { id: "ch-n2", name: "第 2 章 物理层", children: ["编码与调制", "传输介质"] },
+          { id: "ch-n3", name: "第 3 章 数据链路层", children: ["MAC 与以太网", "流量控制"] },
+          { id: "ch-n4", name: "第 4 章 网络层", children: ["IP 地址与子网划分", "路由协议"] },
+          { id: "ch-n5", name: "第 5 章 传输层", children: ["TCP 可靠传输", "UDP 与端口"] },
+          { id: "ch-n6", name: "第 6 章 应用层", children: ["HTTP 协议", "DNS 系统"] }
+        ]
+      }
     ]
   }
 ];
@@ -51,7 +106,7 @@ const QUESTIONS = [
   q({ id: 3, titleTex: "\\int_0^1 x e^x \\, dx", solutionTex: "分部积分：= [x e^x]_0^1 - \\int_0^1 e^x dx = e - (e - 1) = 1", chapter: "ch-c3", kps: ["定积分计算"], tags: ["calc"], createdAt: Date.now() - 3 * 86400000, note: "分部积分符号别漏" }),
   q({ id: 4, titleTex: "计算 \\iint_D (x + y) \\, dxdy，D: x^2 + y^2 \\le 1", solutionTex: "极坐标：= \\int_0^{2\\pi} \\int_0^1 r(\\cos\\theta + \\sin\\theta) r \\, dr d\\theta = 0", chapter: "ch-c5", kps: ["二重积分"], tags: ["method"], createdAt: Date.now() - 1 * 86400000 }),
   q({ id: 5, titleTex: "求 f(x) = e^x 在 x=0 处的泰勒展开到 3 阶", solutionTex: "e^x = 1 + x + \\frac{x^2}{2} + \\frac{x^3}{6} + o(x^3)", chapter: "ch-c1", kps: ["极限计算"], tags: ["calc"], createdAt: Date.now() - 12 * 86400000 }),
-  q({ id: 6, titleTex: "解微分方程 y' + y = e^{-x}", solutionTex: "一阶线性：y = e^{-\\int dx}(\\int e^{-x} e^{\\int dx} dx + C) = e^{-x}(x + C)", chapter: "", kps: [], tags: ["knowledge"], createdAt: Date.now() - 10 * 86400000 }),
+  q({ id: 6, titleTex: "解微分方程 y' + y = e^{-x}", solutionTex: "一阶线性：y = e^{-\\int dx}(\\int e^{-x} e^{\\int dx} dx + C) = e^{-x}(x + C)", chapter: "ch-c6", kps: ["一阶微分方程"], tags: ["knowledge"], createdAt: Date.now() - 10 * 86400000 }),
   q({ id: 7, titleTex: "求曲线 y = x^2 与 y = x 围成的面积", solutionTex: "S = \\int_0^1 (x - x^2) dx = \\frac{1}{6}", chapter: "ch-c3", kps: ["定积分计算"], tags: ["calc"], createdAt: Date.now() - 20 * 86400000 }),
   q({ id: 8, titleTex: "证明 r(A) = r(A^T)", solutionTex: "行秩 = 列秩，用初等变换化阶梯形", chapter: "ch-l2", kps: ["矩阵的秩"], tags: ["method"], createdAt: Date.now() - 18 * 86400000 }),
   q({ id: 9, titleTex: "A = \\begin{pmatrix} 2 & 1 \\\\ 0 & 2 \\end{pmatrix} 能否对角化？", solutionTex: "特征值 λ=2 重根，特征向量只有一个，不能对角化", chapter: "ch-l5", kps: ["相似对角化"], tags: ["knowledge"], createdAt: Date.now() - 4 * 86400000 }),

@@ -40,3 +40,6 @@ jobs:
 
       - name: v1.15.0 新功能验证
         run: node verify-v15.mjs
+
+      - name: v1.16.0 章节树与复习融合验证
+        run: node verify-v16.mjs

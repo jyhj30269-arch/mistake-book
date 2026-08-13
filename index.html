@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.15.0 -->
+  <!-- 个人工作台 v1.16.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -126,98 +126,94 @@
               <div class="card-head"><div class="card-title">🕘 最近动态</div><span class="small muted">录入 / 复习 / 复盘</span></div>
               <div id="dash-feed"></div>
             </div>
-            <div class="card">
-              <div class="card-head">
-                <div class="card-title">🎯 今日推荐复习</div>
-                <span class="card-more" onclick="goDashSection('review')">去复习 →</span>
-              </div>
-              <div class="grid grid-4 dash-mini-stats">
-                <div class="stat-card"><div class="stat-label">未掌握</div><div class="stat-value" id="stats-unmastered">0</div><div class="stat-delta" id="stats-unmastered-delta"></div></div>
-                <div class="stat-card"><div class="stat-label">总题数</div><div class="stat-value" id="stats-total">0</div><div class="stat-delta" id="stats-total-delta"></div></div>
-                <div class="stat-card"><div class="stat-label">错误轨道</div><div class="stat-value" id="stats-err">0</div><div class="stat-delta" id="stats-err-delta"></div></div>
-                <div class="stat-card"><div class="stat-label">累计时长（分）</div><div class="stat-value" id="stats-time">0</div><div class="stat-delta" id="stats-avg">平均 0 次/题</div></div>
-              </div>
-              <div class="divider"></div>
-              <div class="flex-between small mt-8" id="due-task-line"></div>
-              <div class="divider"></div>
-              <div class="flex-between">
-                <div>
-                  <div class="stat-value" style="font-size:22px;"><span id="rec-count">0</span> 道</div>
-                  <div class="small muted" id="rec-desc"></div>
-                </div>
-                <div class="flex" style="gap:8px;flex-wrap:wrap;">
-                  <button class="btn btn-lg" onclick="reviewDueNow()">🔥 复习到期题</button>
-                  <button class="btn btn-primary btn-lg" onclick="startReviewFromRec()">开始复习</button>
-                </div>
-              </div>
-              <div class="divider"></div>
-              <div class="card-title small mb-16">推荐题目预览（前 5）</div>
-              <div id="rec-panel" style="display:flex;flex-direction:column;gap:10px;"></div>
+            <div class="card" id="review-sets-card">
+              <div class="card-head"><div class="card-title">📁 我的复习集</div><span class="card-more" onclick="addReviewSet()">＋ 新建复习集</span></div>
+              <div id="review-sets-list"></div>
             </div>
           </div>
 
-          <!-- ========== 随机复习（并入仪表盘） ========== -->
-          <div class="dash-section-head mt-24" id="dash-review">
-            <div>
-              <div class="dash-section-title">🎯 随机复习</div>
-              <div class="small muted" id="review-sub"></div>
-            </div>
-            <div class="flex">
-              <span class="tag" id="review-resume-btn" style="display:none;cursor:pointer;border-color:var(--primary);color:var(--primary-dark);" onclick="continueResume()">↻ 继续上次复习</span>
-              <span class="tag">分层优先 + 加权随机 · 做错加急 · 覆盖保证</span>
-            </div>
-          </div>
-          <div class="card mt-16" id="review-sets-card" style="display:none;">
-            <div class="card-head"><div class="card-title">📁 我的复习集</div><span class="card-more" onclick="addReviewSet()">＋ 新建复习集</span></div>
-            <div id="review-sets-list"></div>
-          </div>
-          <div class="card" id="review-config">
-            <div class="card-head"><div class="card-title">抽题配置</div><span class="tag">可记忆默认抽题数量（设置页修改）</span></div>
-            <div class="grid grid-3">
-              <div class="field">
-                <label>科目</label>
-                <select class="select" id="rev-subject"></select>
-              </div>
-              <div class="field">
-                <label>子科目</label>
-                <select class="select" id="rev-subsub"></select>
-              </div>
-              <div class="field">
-                <label>章节范围</label>
-                <select class="select" id="rev-chapter"></select>
+          <!-- ========== 复习（今日任务 + 推荐 + 抽题配置 融合） ========== -->
+          <div class="card mt-16" id="dash-review">
+            <div class="card-head">
+              <div class="card-title">🎯 复习</div>
+              <div class="flex">
+                <span class="tag" id="review-resume-btn" style="display:none;cursor:pointer;border-color:var(--primary);color:var(--primary-dark);" onclick="continueResume()">↻ 继续上次复习</span>
+                <span class="tag">到期优先 · 加权随机 · 做错加急</span>
               </div>
             </div>
-            <div class="field">
-              <label>掌握度筛选</label>
-              <div class="flex" id="rev-lv-filter" style="flex-wrap:wrap;">
-                <span class="chip on" data-v="all">全部未掌握</span>
-                <span class="chip" data-v="err">仅错误轨道 🟠🔴⛔</span>
-                <span class="chip" data-v="worst">顽固 + 重点 🔴⛔</span>
+            <div class="grid grid-4 dash-mini-stats">
+              <div class="stat-card"><div class="stat-label">未掌握</div><div class="stat-value" id="stats-unmastered">0</div><div class="stat-delta" id="stats-unmastered-delta"></div></div>
+              <div class="stat-card"><div class="stat-label">总题数</div><div class="stat-value" id="stats-total">0</div><div class="stat-delta" id="stats-total-delta"></div></div>
+              <div class="stat-card"><div class="stat-label">错误轨道</div><div class="stat-value" id="stats-err">0</div><div class="stat-delta" id="stats-err-delta"></div></div>
+              <div class="stat-card"><div class="stat-label">累计时长（分）</div><div class="stat-value" id="stats-time">0</div><div class="stat-delta" id="stats-avg">平均 0 次/题</div></div>
+            </div>
+            <div class="divider"></div>
+            <div class="flex-between small mt-8" id="due-task-line"></div>
+            <div class="divider"></div>
+            <div class="flex-between">
+              <div>
+                <div class="stat-value" style="font-size:22px;"><span id="rec-count">0</span> 道推荐</div>
+                <div class="small muted" id="rec-desc"></div>
               </div>
-              <div class="alert alert-warn mt-8" id="rev-deadlock-hint" style="display:none;">
-                ⚠️ 仅抽错误轨道时，🟡/🟢 的题目不会被抽到，无法升级到完全掌握。
+              <div class="flex" style="gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-lg" onclick="reviewDueNow()">🔥 复习到期题</button>
+                <button class="btn btn-primary btn-lg" onclick="startReviewFromRec()">开始推荐复习</button>
+                <button class="btn btn-lg" onclick="toggleReviewCfg()">⚙️ 抽题配置</button>
               </div>
             </div>
-            <div class="field">
-              <label>错因筛选（专项攻克）</label>
-              <div class="flex" id="rev-tag-filter" style="flex-wrap:wrap;">
-                <span class="chip on" data-v="all">全部错因</span>
-                <span class="chip" data-v="knowledge">🧠 知识点不会</span>
-                <span class="chip" data-v="careless">✏️ 粗心/审题</span>
-                <span class="chip" data-v="calc">🔢 计算错误</span>
-                <span class="chip" data-v="method">💡 思路/方法</span>
-                <span class="chip" data-v="time">⏱️ 时间/心态</span>
+            <div class="divider"></div>
+            <div class="card-title small mb-16">推荐题目预览（前 5 · 到期优先）</div>
+            <div id="rec-panel" style="display:flex;flex-direction:column;gap:10px;"></div>
+            <details class="mt-16" id="review-cfg-details">
+              <summary class="small muted" style="cursor:pointer;user-select:none;">⚙️ 抽题配置（科目 / 掌握度 / 错因 / 数量）▾</summary>
+              <div id="review-config" class="mt-16">
+                <div class="grid grid-3">
+                  <div class="field">
+                    <label>科目</label>
+                    <select class="select" id="rev-subject"></select>
+                  </div>
+                  <div class="field">
+                    <label>子科目</label>
+                    <select class="select" id="rev-subsub"></select>
+                  </div>
+                  <div class="field">
+                    <label>章节范围</label>
+                    <select class="select" id="rev-chapter"></select>
+                  </div>
+                </div>
+                <div class="field">
+                  <label>掌握度筛选</label>
+                  <div class="flex" id="rev-lv-filter" style="flex-wrap:wrap;">
+                    <span class="chip on" data-v="all">全部未掌握</span>
+                    <span class="chip" data-v="err">仅错误轨道 🟠🔴⛔</span>
+                    <span class="chip" data-v="worst">顽固 + 重点 🔴⛔</span>
+                  </div>
+                  <div class="alert alert-warn mt-8" id="rev-deadlock-hint" style="display:none;">
+                    ⚠️ 仅抽错误轨道时，🟡/🟢 的题目不会被抽到，无法升级到完全掌握。
+                  </div>
+                </div>
+                <div class="field">
+                  <label>错因筛选（专项攻克）</label>
+                  <div class="flex" id="rev-tag-filter" style="flex-wrap:wrap;">
+                    <span class="chip on" data-v="all">全部错因</span>
+                    <span class="chip" data-v="knowledge">🧠 知识点不会</span>
+                    <span class="chip" data-v="careless">✏️ 粗心/审题</span>
+                    <span class="chip" data-v="calc">🔢 计算错误</span>
+                    <span class="chip" data-v="method">💡 思路/方法</span>
+                    <span class="chip" data-v="time">⏱️ 时间/心态</span>
+                  </div>
+                </div>
+                <div class="field">
+                  <label>抽题数量</label>
+                  <div class="flex" id="rev-num">
+                    <span class="chip on" data-v="3">3</span>
+                    <span class="chip" data-v="5">5</span>
+                    <span class="chip" data-v="10">10</span>
+                  </div>
+                </div>
+                <button class="btn btn-primary btn-lg" onclick="startReview()">按配置抽题</button>
               </div>
-            </div>
-            <div class="field">
-              <label>抽题数量</label>
-              <div class="flex" id="rev-num">
-                <span class="chip on" data-v="3">3</span>
-                <span class="chip" data-v="5">5</span>
-                <span class="chip" data-v="10">10</span>
-              </div>
-            </div>
-            <button class="btn btn-primary btn-lg" onclick="startReview()">开始复习</button>
+            </details>
           </div>
 
               <div class="card review-card mt-16" id="review-play" style="display:none;">
@@ -555,7 +551,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.15.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.16.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">

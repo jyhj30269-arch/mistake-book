@@ -1,7 +1,8 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.15.0）
+   个人工作台 · 本地服务（v1.16.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.16.0：知识点树自动升级为完整章节体系（数学 18 章 / 408 四科 25 章）。
    v1.15.0：自建复习集 CRUD（/api/review-sets）；备份恢复
    （/api/restore，校验 SQLite 头 + 恢复前自动备份当前库）；
    settings 扩展（theme / remindDate / reviewResume）；启动自检横幅。
@@ -221,6 +222,27 @@ function seedUsersIfEmpty() {
   }
 }
 seedUsersIfEmpty();
+
+/* 知识点树升级（v1.16.0）：检测到旧版树（缺完整章节体系）时整树替换为种子树。
+   题目数据不受影响；用户自定义节点会被重置（单用户工具，升级日志会说明）。 */
+function upgradeSeedTree() {
+  const hasNew = db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE id IN ('ch-c2','ch-d1','ch-co1','ch-os1','ch-n1')").get().n;
+  if (hasNew >= 3) return; // 已是最新章节体系
+  db.exec("DELETE FROM nodes");
+  const insN = db.prepare("INSERT INTO nodes(id, parent_id, name, kind, ord) VALUES (?,?,?,?,?)");
+  let ord = 0;
+  const walk = (nodes, parentId, kind) => {
+    (nodes || []).forEach(n => {
+      const id = typeof n === "string" ? n : n.id;
+      const name = typeof n === "string" ? n : n.name;
+      insN.run(id, parentId, name, kind, ord++);
+      if (typeof n !== "string" && n.children) walk(n.children, id, kind === "subject" ? "sub" : kind === "sub" ? "chapter" : "kp");
+    });
+  };
+  walk(TREE, null, "subject");
+  console.log("知识点树已升级为完整章节体系（数学 18 章 / 408 四科 25 章，共 46 章 90 知识点）");
+}
+upgradeSeedTree();
 
 /* 启动自动备份：每天一份（VACUUM INTO 一致性快照），保留最近 7 份 */
 function autoBackup() {
@@ -1188,7 +1210,7 @@ server.listen(PORT, "127.0.0.1", () => {
   const uCount = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
   console.log("==============================================");
   console.log(`个人工作台本地服务已启动：http://127.0.0.1:${PORT}`);
-  console.log(`版本：v1.15.0 · Node ${process.versions.node}`);
+  console.log(`版本：v1.16.0 · Node ${process.versions.node}`);
   console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
   console.log(`备份：backups/ 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
   console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);
