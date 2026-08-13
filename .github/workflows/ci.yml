@@ -43,3 +43,12 @@ jobs:
 
       - name: v1.16.0 章节树与复习融合验证
         run: node verify-v16.mjs
+
+      - name: v1.18.0 新功能验证
+        run: node verify-v18.mjs
+
+      - name: 服务端 API 直接测试
+        run: node api-test.mjs
+
+      - name: 掌握度算法专项测试
+        run: node verify-mastery.mjs

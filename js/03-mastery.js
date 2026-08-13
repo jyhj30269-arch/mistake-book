@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.17.0 · 03-mastery.js（由 app.js 拆分）
+   个人工作台 v1.18.0 · 03-mastery.js（由 app.js 拆分）
    六级掌握度、SM-2 间隔重复调度、连续打卡、薄弱知识点
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -124,10 +124,11 @@ function jaccard(a, b) {
   return inter / (A.size + B.size - inter);
 }
 
-function findDupCandidates(titleTex, subject, type, excludeId) {
+function findDupCandidates(titleTex, subject, type, excludeId, pool) {
   const n = norm(titleTex);
   const windowMs = 7 * 86400000;
-  return questions.filter(q =>
+  const src = pool || questions; // ⑬ 传入 7 天窗口预过滤池可避免全库扫描
+  return src.filter(q =>
     q.id !== excludeId &&
     q.subject === subject &&
     q.type === type &&
@@ -138,5 +139,11 @@ function findDupCandidates(titleTex, subject, type, excludeId) {
 
 function dupCountFor(q) {
   return findDupCandidates(q.titleTex, q.subject, q.type, q.id).length;
+}
+
+/* ⑬ 7 天窗口候选池（题库列表渲染时只对窗口内题目做去重比对） */
+function recentDupPool() {
+  const windowMs = 7 * 86400000;
+  return questions.filter(q => Date.now() - q.createdAt <= windowMs);
 }
 

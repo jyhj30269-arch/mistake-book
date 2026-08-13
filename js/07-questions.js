@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.17.0 · 07-questions.js（由 app.js 拆分）
+   个人工作台 v1.18.0 · 07-questions.js（由 app.js 拆分）
    题库列表/筛选/分页/批量归类/详情/编辑/删除
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -122,6 +122,8 @@ function renderQuestions() {
   $("#q-count").textContent = `显示 ${shown.length} / ${list.length} 条`;
   $("#q-batch-btn").style.display = qSel.size ? "" : "none";
   $("#q-set-btn").style.display = qSel.size ? "" : "none";
+  $("#q-del-btn").style.display = qSel.size ? "" : "none";
+  $("#q-export-btn").style.display = qSel.size ? "" : "none";
   $("#q-sel-all").checked = list.length > 0 && list.every(q => qSel.has(q.id));
   const moreWrap = $("#q-more-wrap");
   if (moreWrap) moreWrap.style.display = list.length > shown.length ? "flex" : "none";
@@ -131,9 +133,10 @@ function renderQuestions() {
     return;
   }
   const isMobile = window.innerWidth <= 768;
+  const recentPool = recentDupPool(); // ⑬ 去重只用 7 天窗口内题目
   const rows = shown.map(q => {
     const m = displayMastery(q.id);
-    const dup = dupCountFor(q);
+    const dup = findDupCandidates(q.titleTex, q.subject, q.type, q.id, recentPool).length;
     const tagTxt = TAGS.filter(t => q.tags.includes(t.key)).map(t => `${t.icon} ${t.name.split("/")[0]}`).join(" ");
     const kpTxt = q.kps.length ? q.kps.join(" / ") : '<span class="tag">未分类</span>';
     const aged = m.decay;
@@ -316,7 +319,7 @@ function openDetail(id) {
     </div>
 
     <div class="card mt-16">
-      <div class="card-head"><div class="card-title">题目</div><span class="tag">content_type: ${q.type}${q.marks.rescratch ? " · 待二刷" : ""}</span></div>
+      <div class="card-head"><div class="card-title">题目</div><div class="flex"><span class="tag">content_type: ${q.type}${q.marks.rescratch ? " · 待二刷" : ""}</span>${q.type === "vocabulary" ? `<button class="btn btn-sm" onclick="speakQuestion(${q.id})">🔊 发音</button>` : ""}</div></div>
       <div class="katex-render" data-tex="${esc(q.titleTex)}" data-display="1"></div>
       <div class="divider"></div>
       <div class="card-title small mb-16">解题过程</div>
@@ -354,6 +357,12 @@ function openDetail(id) {
       </div>
     </div>
 
+    ${logs.length >= 2 ? `
+    <div class="card mt-16">
+      <div class="card-head"><div class="card-title">📈 掌握度曲线（累计掌握分）</div><span class="tag">上升=进步 · 下降=退步</span></div>
+      <div id="detail-curve" style="height:200px;"></div>
+    </div>` : ""}
+
     <div class="card mt-16">
       <div class="card-head"><div class="card-title">四档自评（立即体验）</div></div>
       <div class="small muted mb-16">✅ 完全做对=正常升级 · 🟡 思路对细节错=升半级/不升（标记计算薄弱）· 🟠 卡住=不升级 · ❌ 不会=降级重置</div>
@@ -364,7 +373,80 @@ function openDetail(id) {
         <button class="rate-btn no" onclick="quickRate(${q.id},'fail')">❌ 不会</button>
       </div>
     </div>`;
+  // ⑤ 遗忘曲线：累计掌握分时间线
+  const curveEl = $("#detail-curve");
+  if (curveEl && logs.length >= 2) {
+    let acc = 0;
+    const pts = logs.map(l => {
+      acc += l.result === "ok" ? 1 : l.result === "half" ? 0.5 : l.result === "stuck" ? -0.5 : -1;
+      return [fmtDate(l.at), acc];
+    });
+    const chart = initChart(curveEl);
+    if (chart) chart.setOption({
+      tooltip: { trigger: "axis" },
+      grid: { left: 44, right: 16, top: 16, bottom: 26 },
+      xAxis: { type: "category", data: pts.map(p => p[0]), axisLabel: { fontSize: 11 } },
+      yAxis: { type: "value", name: "掌握分", fontSize: 11 },
+      series: [{ type: "line", smooth: true, data: pts.map(p => p[1]), areaStyle: { opacity: .12 }, itemStyle: { color: "#2383E2" }, lineStyle: { width: 2 } }]
+    });
+  }
   renderMath($("#detail-body"));
+}
+
+/* ④ 词汇 TTS 发音（浏览器原生 SpeechSynthesis，零依赖） */
+function speakQuestion(id) {
+  const q = questions.find(x => x.id === id);
+  if (!q) return;
+  if (!("speechSynthesis" in window)) { toast("当前浏览器不支持语音", "error"); return; }
+  const u = new SpeechSynthesisUtterance(String(q.titleTex).replace(/[\\$_{}]+/g, " ").replace(/\s+/g, " ").trim());
+  u.lang = q.subject === "subj-eng" ? "en-US" : "zh-CN";
+  u.rate = 0.9;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+
+/* ⑥ 批量删除 / 批量导出（v1.18） */
+function batchDeleteQuestions() {
+  const sel = questions.filter(q => qSel.has(q.id));
+  if (!sel.length) { toast("请先勾选题目", "error"); return; }
+  openModal(`批量删除（${sel.length} 题）`, `
+    <div class="small">将删除选中的 <b>${sel.length}</b> 道题（复习记录一并清理，不可恢复）。请输入 <b>删除</b> 确认：</div>
+    <div class="field mt-16"><input class="input" id="batch-del-confirm" placeholder="输入「删除」" /></div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-danger" onclick="doBatchDeleteQuestions()">确认删除</button>`);
+}
+function doBatchDeleteQuestions() {
+  const confirmEl = $("#batch-del-confirm");
+  if (!confirmEl || confirmEl.value.trim() !== "删除") { toast("需输入「删除」二字", "error"); return; }
+  const ids = Array.from(qSel);
+  questions = questions.filter(q => !qSel.has(q.id));
+  reviewLogs = reviewLogs.filter(l => !qSel.has(l.qid));
+  ids.forEach(id => apiCall(API.deleteQuestion(id)));
+  qSel.clear();
+  closeModal();
+  qPage = 1;
+  renderQuestions();
+  toast(`已删除 ${ids.length} 道题`, "success");
+}
+function batchExportQuestions() {
+  const sel = questions.filter(q => qSel.has(q.id));
+  if (!sel.length) { toast("请先勾选题目", "error"); return; }
+  const data = {
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    questions: sel,
+    reviewLogs: reviewLogs.filter(l => sel.some(q => q.id === l.qid)),
+    tree: TREE
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `错题导出-${fmtDate(Date.now())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+  toast(`已导出 ${sel.length} 题（含复习记录，可再导入）`, "success");
 }
 
 function saveNote(id) {

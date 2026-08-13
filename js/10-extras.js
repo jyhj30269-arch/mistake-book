@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.17.0 · 10-extras.js（由 app.js 拆分）
+   个人工作台 v1.18.0 · 10-extras.js（由 app.js 拆分）
    外围模块（热点资讯/收藏夹/试卷 PDF 导出）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -282,6 +282,11 @@ function openPaperExport() {
       </div>
     </div>
     <div class="field"><label>副标题（可选）</label><input class="input" id="pp-sub" placeholder="如：高数错题随机卷" /></div>
+    <div class="field">
+      <label>难度配比：错误轨道题占比 <b id="pp-err-val">50%</b></label>
+      <input type="range" id="pp-err-ratio" min="0" max="100" step="10" value="50" style="width:100%;" oninput="document.getElementById('pp-err-val').textContent=this.value+'%'" aria-label="错误轨道题占比" />
+      <div class="small muted">100% = 只出错误轨道（🟠🔴⛔）；0% = 只出其他未掌握题</div>
+    </div>
     <label class="flex" style="gap:8px;cursor:pointer;"><input type="checkbox" id="pp-answers" checked /> 附带「参考答案与解析」页</label>`,
     `<button class="btn" onclick="closeModal()">取消</button>
      <button class="btn btn-primary" onclick="doExportPaper()">生成并下载 PDF</button>`);
@@ -331,7 +336,16 @@ async function doExportPaper() {
     return true;
   });
   if (!pool.length) { toast("没有符合条件的题目", "error"); return; }
-  const picked = shuffleArr(pool).slice(0, Math.min(num, pool.length));
+  // ⑦ 难度配比：错误轨道题占比（默认 50%）
+  const ratio = (Number($("#pp-err-ratio")?.value) || 50) / 100;
+  const errPool = pool.filter(q => ERR_TRACK.includes(displayMastery(q.id).lv.key));
+  const otherPool = pool.filter(q => !ERR_TRACK.includes(displayMastery(q.id).lv.key));
+  const total = Math.min(num, pool.length);
+  const nErr = Math.min(errPool.length, Math.round(total * ratio));
+  const picked = [
+    ...shuffleArr(errPool).slice(0, nErr),
+    ...shuffleArr(otherPool).slice(0, total - nErr)
+  ].slice(0, total);
   exportingPaper = true;
   try {
     const buf = await API.exportPaper({

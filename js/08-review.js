@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.17.0 · 08-review.js（由 app.js 拆分）
+   个人工作台 v1.18.0 · 08-review.js（由 app.js 拆分）
    复习（配置/抽题/做题/自评/断点/默写/回忆错因/复习集）+ 数据统计图表（含热力图）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -325,6 +325,9 @@ function showReviewCard() {
   renderRevNav();
   $("#rev-question").innerHTML = "";
   renderTex($("#rev-question"), q.titleTex, true);
+  // ④ 词汇 TTS（复习卡发音）
+  const ttsWrap = $("#rev-tts-wrap");
+  if (ttsWrap) ttsWrap.style.display = (q.type === "vocabulary" && "speechSynthesis" in window) ? "" : "none";
   // ③ 默写模式：vocabulary / essay 类题目先默写再对照答案
   const writeWrap = $("#rev-write-wrap"), writeBox = $("#rev-write-box");
   if (writeWrap && writeBox) {
@@ -436,6 +439,18 @@ function revWriteCompare() {
   const ans = $("#rev-answer");
   ans.insertBefore(mineBox, ans.firstChild);
   toast("对照答案，然后自评", "success");
+}
+
+/* ④ 复习卡发音（当前题） */
+function speakCurrent() {
+  const q = window.__curQ;
+  if (!q) return;
+  if (!("speechSynthesis" in window)) { toast("当前浏览器不支持语音", "error"); return; }
+  const u = new SpeechSynthesisUtterance(String(q.titleTex).replace(/[\\$_{}]+/g, " ").replace(/\s+/g, " ").trim());
+  u.lang = q.subject === "subj-eng" ? "en-US" : "zh-CN";
+  u.rate = 0.9;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
 }
 
 function selfRate(result) {

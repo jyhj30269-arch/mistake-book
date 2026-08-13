@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.17.0 · 02-state.js（由 app.js 拆分）
+   个人工作台 v1.18.0 · 02-state.js（由 app.js 拆分）
    全局状态、知识点树、去重、增量写与整库持久化（apiCall / persistLocal / loadLocal）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -111,6 +111,9 @@ let personal = {
 };
 let personalIdSeq = 1;
 let reviewSets = []; // 自建复习集 { id, name, qids: [], createdAt }
+let habits = [];     // 每日习惯 { id, name, doneDays: [], createdAt }
+let examDate = "";   // 考试日期 YYYY-MM-DD（v1.18 考研倒计时）
+let moduleOn = {};   // 外围模块开关 { hot?: bool, bookmarks?: bool }
 let summaryRange = "week";
 let dailyMood = "";
 let todoViewMode = "list";   // 待办：list | board
@@ -175,6 +178,9 @@ function persistLocal() {
     theme,
     remindDate,
     reviewResume,
+    examDate,
+    moduleOn,
+    habits,
     reviewCfg: { ...reviewCfg },
     personal: {
       todos: personal.todos,
@@ -233,7 +239,10 @@ async function loadLocal() {
       ...personal.inbox.map(i => i.id || 0),
       ...personal.bookmarks.map(b => b.id || 0)) + 1;
     reviewSets = Array.isArray(d.reviewSets) ? d.reviewSets : [];
+    habits = Array.isArray(d.habits) ? d.habits : [];
   }
+  if (typeof d.examDate === "string") examDate = d.examDate;
+  if (d.moduleOn && typeof d.moduleOn === "object") moduleOn = d.moduleOn;
   return true;
 }
 

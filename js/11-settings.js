@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.17.0 · 11-settings.js（由 app.js 拆分）
+   个人工作台 v1.18.0 · 11-settings.js（由 app.js 拆分）
    设置（提醒/主题开关/OCR 配置/知识点管理/导出导入 CSV/备份恢复）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -68,6 +68,11 @@ function renderSettings() {
   if (vEl) vEl.textContent = "v" + APP_VERSION;
   const apiTag = $("#api-mode-tag");
   if (apiTag) apiTag.textContent = serverDown ? "API: 本地服务未启动" : "API: 本地 SQLite";
+  const examEl = $("#exam-date");
+  if (examEl) examEl.value = examDate;
+  const modHot = $("#mod-hot"), modBm = $("#mod-bookmarks");
+  if (modHot) modHot.checked = moduleOn.hot !== false;
+  if (modBm) modBm.checked = moduleOn.bookmarks !== false;
   loadOcrConfig();
   const box = $("#settings-tree");
   box.innerHTML = `
@@ -653,6 +658,30 @@ function doOverwrite() {
   closeModal();
   toast("已覆盖导入", "success");
   go("dashboard");
+}
+
+/* ---------------- 考研倒计时 & 模块开关（v1.18） ---------------- */
+function saveExamDate() {
+  examDate = $("#exam-date").value || "";
+  apiCall(API.saveSettings({ examDate }));
+  toast(examDate ? `已设置考试日期：${examDate}` : "已清除考试日期", "success");
+  if (currentView === "dashboard") renderDashboard();
+}
+
+function toggleModule(key, on) {
+  moduleOn[key] = !!on;
+  apiCall(API.saveSettings({ moduleOn }));
+  applyModuleVisibility();
+  toast(on ? "模块已显示" : "模块已隐藏（数据保留，可随时恢复）", "success");
+}
+
+/* 按模块开关隐藏/恢复导航项（侧边栏 + 移动 Tab + 更多抽屉） */
+function applyModuleVisibility() {
+  ["hot", "bookmarks"].forEach(v => {
+    const hide = moduleOn[v] === false;
+    $$(`.nav-item[data-view="${v}"], .mobile-tabbar a[data-view="${v}"], #mobile-menu .nav-item[data-view="${v}"]`)
+      .forEach(el => { el.style.display = hide ? "none" : ""; });
+  });
 }
 
 /* ================= 个人工作台：今日概览 / 待办 / 目标 / 总结 / 健康 / 复盘 ================= */

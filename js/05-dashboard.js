@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.17.0 · 05-dashboard.js（由 app.js 拆分）
+   个人工作台 v1.18.0 · 05-dashboard.js（由 app.js 拆分）
    仪表盘渲染、推荐算法、今日任务
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -48,6 +48,66 @@ function renderDashboard() {
   renderStats();
   renderOverview();
   renderTodayOverview();
+  renderExamCountdown();
+  renderHabitsPanel();
+  renderTodayPlan();
+}
+
+/* 📅 考研倒计时横幅（剩余 ≤60 天进入冲刺提示） */
+function renderExamCountdown() {
+  const cd = $("#exam-countdown");
+  if (!cd) return;
+  const left = examDaysLeft();
+  if (left == null) { cd.style.display = "none"; return; }
+  cd.style.display = "";
+  const sprint = left <= 60;
+  cd.className = sprint ? "alert alert-danger mt-16" : "alert mt-16";
+  cd.innerHTML = left >= 0
+    ? `📅 距考试日 <b>${esc(examDate)}</b> 还有 <b style="font-size:16px;">${left}</b> 天${left === 0 ? "（今天考试，加油！）" : sprint ? " · 冲刺模式 🔥 建议每天：复习到期题 → 攻克薄弱知识点 → 录新题" : ""}`
+    : `✅ 考试日（${esc(examDate)}）已过去 ${-left} 天`;
+}
+
+/* 📋 今日学习计划：到期复习 → 薄弱知识点攻克 → 录入新题 */
+function genTodayPlan() {
+  renderTodayPlan(true);
+}
+function renderTodayPlan(force) {
+  const box = $("#today-plan");
+  if (!box) return;
+  const dueToday = questions.filter(q => isDue(q.id) && displayMastery(q.id).lv.key !== "blue");
+  const topWk = weakKps().filter(w => w.err > 0).slice(0, 3);
+  const addedToday = questions.filter(q => fmtDate(q.createdAt) === fmtDate(Date.now())).length;
+  const streak = currentStreak();
+  box.innerHTML = `
+    <div class="small muted mb-8">自动生成 · 按优先级排列 ${force ? "（已重新生成）" : ""}</div>
+    <div class="plan-item">
+      <div class="flex-between">
+        <div><b>① 复习到期题</b><div class="small muted">间隔重复队列 · 今日 ${dueToday.length} 题</div></div>
+        <button class="btn btn-sm ${dueToday.length ? "btn-primary" : ""}" onclick="reviewDueNow()" ${dueToday.length ? "" : "disabled"}>开始</button>
+      </div>
+    </div>
+    <div class="plan-item">
+      <div class="flex-between">
+        <div><b>② 攻克薄弱知识点</b><div class="small muted">${topWk.length ? topWk.map(w => esc(w.name) + " ×" + w.err).join(" · ") : "暂无薄弱知识点，继续保持"}</div></div>
+        <button class="btn btn-sm" onclick="reviewWeakNow()" ${topWk.length ? "" : "disabled"}>抽题</button>
+      </div>
+    </div>
+    <div class="plan-item">
+      <div class="flex-between">
+        <div><b>③ 录入新题</b><div class="small muted">今天已录入 ${addedToday} 题 ${streak ? `· 连续打卡 ${streak} 天 🔥` : ""}</div></div>
+        <button class="btn btn-sm" onclick="go('input')">去录入</button>
+      </div>
+    </div>`;
+}
+
+/* ② 按薄弱知识点抽题复习 */
+function reviewWeakNow() {
+  const topWk = weakKps().filter(w => w.err > 0).slice(0, 3);
+  if (!topWk.length) { toast("暂无薄弱知识点", "success"); return; }
+  const names = new Set(topWk.map(w => w.name));
+  const pool = questions.filter(q => q.kps.some(k => names.has(k)) && displayMastery(q.id).lv.key !== "blue");
+  if (!pool.length) { toast("薄弱知识点下没有题目，先去录入", "error"); return; }
+  startReviewWith(Math.min(5, pool.length), pool);
 }
 
 function weakKps() {

@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · API 服务层（前后端接口契约 v1.17.0）
+   个人工作台 · API 服务层（前后端接口契约 v1.18.0）
    ------------------------------------------------------------
    本文件是前后端的唯一接口契约。业务代码只通过 window.API 访问
    OCR / 数据 / 去重，不直接读写 localStorage 或 fetch。
@@ -137,13 +137,23 @@
         return this.ocrRecognizeMineru(image, opts);
       }
       if (this.mode === "remote") {
+        // v1.18 异步化：提交任务 → 轮询 /api/ocr/status（服务端队列串行识别）
         const res = await fetch(`${this.base}/ocr/recognize`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dataUrl: image.dataUrl, isSolution: !!opts.isSolution })
         });
         if (!res.ok) throw new Error(`OCR 提交失败 ${res.status}`);
-        return res.json();
+        const j = await res.json();
+        if (!j.taskId) return j;
+        const t0 = Date.now();
+        while (Date.now() - t0 < 300000) {
+          const st = await this.ocrStatus(j.taskId);
+          if (st.status === "done" && st.result) return st.result;
+          if (st.status === "failed") throw new Error(st.message || "OCR 识别失败");
+          await delay(800);
+        }
+        throw new Error("OCR 任务超时（>5 分钟），请稍后重试");
       }
       // 本地模拟：1~2 秒返回示例 LaTeX（低置信度字符黄色高亮）
       await delay(900 + Math.random() * 900);
@@ -588,6 +598,29 @@
     async deleteReviewSet(id) {
       if (this.mode !== "remote") return { ok: true };
       return (await fetch(`${this.base}/review-sets/${id}`, { method: "DELETE" })).json();
+    },
+
+    /* ================= 每日习惯打卡 ================= */
+
+    async listHabits() {
+      if (this.mode !== "remote") return [];
+      const res = await fetch(`${this.base}/habits`);
+      const body = await res.json();
+      return body.data || [];
+    },
+    async saveHabit(h) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/habits`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(h) });
+      return res.json();
+    },
+    async updateHabit(h) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/habits/${h.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(h) });
+      return res.json();
+    },
+    async deleteHabit(id) {
+      if (this.mode !== "remote") return { ok: true };
+      return (await fetch(`${this.base}/habits/${id}`, { method: "DELETE" })).json();
     },
 
     /** 清空本机数据（恢复演示数据用） */

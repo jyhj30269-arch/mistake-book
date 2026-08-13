@@ -1,7 +1,10 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.17.0）
+   个人工作台 · 本地服务（v1.18.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.18.0：考研倒计时与冲刺 / 每日习惯打卡 / OCR 异步化（任务队列+轮询）/
+   日历到期角标 / 键盘快捷键 / 词汇 TTS / 遗忘曲线 / 批量删除导出 /
+   试卷难度配比 / 学情周报导出 / 模块开关 / 测试基建与 API 直测。
    v1.17.0：前端业务逻辑拆分为 js/01-core ~ js/12-boot（经典 script 顺序加载）。
    v1.16.0：知识点树自动升级为完整章节体系（数学 18 章 / 408 四科 25 章）。
    v1.15.0：自建复习集 CRUD（/api/review-sets）；备份恢复
@@ -118,6 +121,12 @@ function initDb() {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     qids TEXT DEFAULT '[]',
+    created_at INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS habits(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    done_days TEXT DEFAULT '[]',
     created_at INTEGER
   );
 `);
@@ -352,6 +361,11 @@ function readReviewSets() {
     .map(r => ({ id: r.id, name: r.name, qids: JSON.parse(r.qids || "[]"), createdAt: r.created_at }));
 }
 
+function readHabits() {
+  return db.prepare("SELECT id, name, done_days, created_at FROM habits ORDER BY id").all()
+    .map(r => ({ id: r.id, name: r.name, doneDays: JSON.parse(r.done_days || "[]"), createdAt: r.created_at }));
+}
+
 function readPersonal() {
   const s = readSettings();
   return {
@@ -375,11 +389,14 @@ function getDb() {
     study: readStudy(),
     remindOn: s.remindOn !== "false",
     theme: s.theme === "dark" ? "dark" : "light",
+    examDate: s.examDate || "",
+    moduleOn: (() => { try { return JSON.parse(s.module_on || "{}"); } catch (e) { return {}; } })(),
     remindDate: s.remindDate || "",
     reviewResume: (() => { try { return JSON.parse(s.reviewResume || "null"); } catch (e) { return null; } })(),
     reviewCfg: JSON.parse(s.reviewCfg || '{"sub":"all","chapter":"","lv":"all","num":3}'),
     personal: readPersonal(),
     reviewSets: readReviewSets(),
+    habits: readHabits(),
     qidSeq: Math.max(100, ...questions.map(q => q.id || 0)),
     reviewSeq: reviewLogs.length || 0
   };
@@ -388,7 +405,7 @@ function getDb() {
 function saveDb(data) {
   db.exec("BEGIN");
   try {
-    db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks; DELETE FROM review_sets;");
+    db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks; DELETE FROM review_sets; DELETE FROM habits;");
     const insQ = db.prepare(`INSERT INTO questions
       (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
        wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate, imgs)
@@ -421,6 +438,8 @@ function saveDb(data) {
     insS.run("theme", data.theme === "dark" ? "dark" : "light");
     insS.run("remindDate", data.remindDate || "");
     insS.run("reviewResume", JSON.stringify(data.reviewResume || null));
+    insS.run("examDate", data.examDate || "");
+    insS.run("module_on", JSON.stringify(data.moduleOn || {}));
     const insD = db.prepare("INSERT INTO study_days(day, seconds) VALUES (?,?)");
     Object.entries((data.study && data.study.perDay) || {}).forEach(([day, sec]) => insD.run(day, sec));
     const p = data.personal || {};
@@ -447,6 +466,9 @@ function saveDb(data) {
     const insRS = db.prepare("INSERT INTO review_sets(id, name, qids, created_at) VALUES (?,?,?,?)");
     (data.reviewSets || []).forEach(rs => insRS.run(rs.id, String(rs.name || "").slice(0, 100),
       JSON.stringify(rs.qids || []), rs.createdAt || Date.now()));
+    const insH = db.prepare("INSERT INTO habits(id, name, done_days, created_at) VALUES (?,?,?,?)");
+    (data.habits || []).forEach(h => insH.run(h.id, String(h.name || "").slice(0, 50),
+      JSON.stringify(h.doneDays || []), h.createdAt || Date.now()));
     db.exec("COMMIT");
     return { ok: true };
   } catch (e) {
@@ -522,6 +544,50 @@ function mineruRecognize(dataUrl) {
     });
   });
 }
+
+/* ---------- OCR 任务队列（v1.18 异步化：提交即返回 taskId，后台串行识别） ---------- */
+const ocrTasks = new Map(); // taskId -> { status: pending|done|failed, result?, error?, finishedAt }
+let ocrQueue = Promise.resolve();
+function queueOcr(body) {
+  const taskId = "ocr-" + Date.now() + "-" + Math.floor(Math.random() * 1e4);
+  ocrTasks.set(taskId, { status: "pending" });
+  ocrQueue = ocrQueue.then(async () => {
+    const t0 = Date.now();
+    const isSolution = !!body.isSolution;
+    try {
+      let r;
+      if (MINERU_AVAILABLE) {
+        r = await mineruRecognize(body.dataUrl);
+      } else {
+        // 模拟识别（测试加速：150-250ms/张）
+        await new Promise(rs => setTimeout(rs, 150 + Math.random() * 100));
+        r = { text: isSolution
+          ? "1 - \\cos x \\sim \\frac{x^2}{2}，x \\sin x \\sim x^2，故极限 = \\frac{1}{2}"
+          : "\\lim_{x \\to 0} \\frac{1 - \\cos x}{x \\sin x}", source: "mock-server" };
+      }
+      ocrTasks.set(taskId, {
+        status: "done", finishedAt: Date.now(),
+        result: {
+          taskId,
+          titleTex: isSolution ? "" : r.text,
+          solutionTex: isSolution ? r.text : "",
+          lowConf: [], source: r.source,
+          costSec: Math.round((Date.now() - t0) / 1000)
+        }
+      });
+    } catch (e) {
+      ocrTasks.set(taskId, { status: "failed", error: String(e.message || e).slice(0, 300), finishedAt: Date.now() });
+    }
+  });
+  return taskId;
+}
+/* 完成任务定期清理（10 分钟） */
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of ocrTasks) {
+    if (v.status !== "pending" && now - (v.finishedAt || 0) > 10 * 60000) ocrTasks.delete(k);
+  }
+}, 10 * 60000);
 
 /* ---------- AI HOT 资讯代理（匿名只读 + 60 秒缓存） ---------- */
 const HOT_BASE = "https://aihot.virxact.com/api/v1";
@@ -812,6 +878,8 @@ const server = http.createServer(async (req, res) => {
           if (body.theme && typeof body.theme === "string") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('theme', ?)").run(body.theme);
           if (body.reviewResume !== undefined) db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('reviewResume', ?)").run(JSON.stringify(body.reviewResume));
           if (body.remindDate && typeof body.remindDate === "string") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('remindDate', ?)").run(body.remindDate);
+          if (body.examDate && typeof body.examDate === "string") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('examDate', ?)").run(body.examDate);
+          if (body.moduleOn && typeof body.moduleOn === "object") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('module_on', ?)").run(JSON.stringify(body.moduleOn));
         });
         await writeQueue;
         sendJson(res, 200, { ok: true });
@@ -954,6 +1022,18 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     const bmM = p.match(/^\/api\/bookmarks\/(\d+)$/);
+    if (bmM && req.method === "PUT") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`UPDATE bookmarks SET title=?, kind=?, url=?, note=?, tags=? WHERE id=?`)
+          .run(String(b.title || "").slice(0, 200), b.kind || "link",
+            String(b.url || "").slice(0, 2000), String(b.note || "").slice(0, 1000),
+            JSON.stringify(b.tags || []), Number(bmM[1])));
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
     if (bmM && req.method === "DELETE") {
       try {
         const id = Number(bmM[1]);
@@ -999,10 +1079,38 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, { ok: true });
       return;
     }
+    if (p === "/api/habits" && req.method === "GET") { sendJson(res, 200, { data: readHabits() }); return; }
+    if (p === "/api/habits" && req.method === "POST") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO habits(id, name, done_days, created_at) VALUES (?,?,?,?)`)
+          .run(b.id ?? null, String(b.name || "").slice(0, 50), JSON.stringify(b.doneDays || []), b.createdAt || Date.now()));
+        await writeQueue;
+        sendJson(res, 200, { ok: true, id: b.id });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    const habitM = p.match(/^\/api\/habits\/(\d+)$/);
+    if (habitM && req.method === "PUT") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`UPDATE habits SET name=?, done_days=? WHERE id=?`)
+          .run(String(b.name || "").slice(0, 50), JSON.stringify(b.doneDays || []), Number(habitM[1])));
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (habitM && req.method === "DELETE") {
+      writeQueue = writeQueue.then(() => db.prepare("DELETE FROM habits WHERE id = ?").run(Number(habitM[1])));
+      await writeQueue;
+      sendJson(res, 200, { ok: true });
+      return;
+    }
     if (p === "/api/reset" && req.method === "POST") {
       try {
         writeQueue = writeQueue.then(() => {
-          db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks; DELETE FROM review_sets;");
+          db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks; DELETE FROM review_sets; DELETE FROM habits;");
           seedIfEmpty();
         });
         await writeQueue;
@@ -1080,34 +1188,19 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/ocr/recognize" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        const t0 = Date.now();
-        const isSolution = !!body.isSolution;
-        if (MINERU_AVAILABLE) {
-          const r = await mineruRecognize(body.dataUrl);
-          sendJson(res, 200, {
-            taskId: "mineru-" + Date.now(),
-            titleTex: isSolution ? "" : r.text,
-            solutionTex: isSolution ? r.text : "",
-            lowConf: [],
-            source: r.source,
-            costSec: Math.round((Date.now() - t0) / 1000)
-          });
-        } else {
-          await new Promise(r => setTimeout(r, 900 + Math.random() * 900));
-          sendJson(res, 200, {
-            taskId: "mock-" + Date.now(),
-            titleTex: isSolution ? "" : "\\lim_{x \\to 0} \\frac{1 - \\cos x}{x \\sin x}",
-            solutionTex: isSolution ? "1 - \\cos x \\sim \\frac{x^2}{2}，x \\sin x \\sim x^2，故极限 = \\frac{1}{2}" : "",
-            lowConf: [],
-            source: "mock-server"
-          });
-        }
+        // v1.18：异步化——提交即返回 taskId，前端用 /api/ocr/status 轮询
+        const taskId = queueOcr(body);
+        sendJson(res, 200, { taskId, status: "pending" });
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
     }
     if (p === "/api/ocr/status" && req.method === "GET") {
-      // 本地服务 OCR 为同步返回，轮询接口恒为 done
-      sendJson(res, 200, { status: "done", result: null });
+      const taskId = url.searchParams.get("taskId") || "";
+      const t = ocrTasks.get(taskId);
+      if (!t) return sendJson(res, 404, { code: 40401, message: "任务不存在" });
+      if (t.status === "done") sendJson(res, 200, { status: "done", result: t.result });
+      else if (t.status === "failed") sendJson(res, 200, { status: "failed", message: t.error });
+      else sendJson(res, 200, { status: "pending", result: null });
       return;
     }
     if (p === "/api/hot/items" && req.method === "GET") {
@@ -1211,7 +1304,7 @@ server.listen(PORT, "127.0.0.1", () => {
   const uCount = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
   console.log("==============================================");
   console.log(`个人工作台本地服务已启动：http://127.0.0.1:${PORT}`);
-  console.log(`版本：v1.17.0 · Node ${process.versions.node}`);
+  console.log(`版本：v1.18.0 · Node ${process.versions.node}`);
   console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
   console.log(`备份：backups/ 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
   console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);

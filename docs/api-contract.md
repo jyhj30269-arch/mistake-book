@@ -1,6 +1,6 @@
 # 考研错题本 · 前端 API 接口契约
 
-> 版本：v1.17.0 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
+> 版本：v1.18.0 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
 >
 > 本文件与 `../api.js` 一一对应。后端接入时按此契约实现同名方法即可，前端业务代码无需改动。
 
@@ -23,8 +23,8 @@
 | --- | --- | --- | --- |
 | `loadAll()` | 无 | 整库对象 `{ questions, reviewLogs, tree, study, remindOn }` | 本地：读 localStorage；远端：拉取全量数据或按需加载 |
 | `saveAll(data)` | 整库对象 | 无 | 本地：写 localStorage；远端：由各写接口替代，可不实现 |
-| `ocrRecognize(image, opts)` | `image`（`{dataUrl,name}`）、`opts.isSolution` | `{ taskId, titleTex, solutionTex, lowConf, source, costSec }` | 提交单张图片 OCR；本地服务调用 MinerU 官方 CLI（pipeline，失败回退 flash） |
-| `ocrStatus(taskId)` | taskId | `{ status: "pending"\|"done"\|"failed", result? }` | 轮询 OCR 任务（Phase C 使用） |
+| `ocrRecognize(image, opts)` | `image`（`{dataUrl,name}`）、`opts.isSolution` | `{ taskId, status: "pending" }` | 提交单张图片 OCR；**v1.18 起异步化**：提交即返回 taskId，用 `ocrStatus` 轮询（服务端任务队列串行识别） |
+| `ocrStatus(taskId)` | taskId | `{ status: "pending"\|"done"\|"failed", result? }` | 轮询 OCR 任务真实状态（完成/失败/处理中） |
 | `hotItems(opts)` | `{ window, q?, category?, limit? }` | AI HOT 资讯列表 | 服务端代理匿名请求 + 60s 缓存 |
 | `hotTopics()` | 无 | 最热话题列表 | 服务端代理 |
 | `hotDaily()` | 无 | 最新 AI 日报 | 服务端代理 |
@@ -42,15 +42,16 @@
 | `saveGoal(g)` / `updateGoal(g)` / `deleteGoal(id)` | 目标对象 / id | `{ ok }` | 目标增量 CRUD |
 | `saveDailyReview(rv)` | 复盘对象（按 day upsert） | `{ ok }` | 当日复盘 upsert |
 | `saveInboxItem(it)` / `updateInboxItem(it)` / `deleteInboxItem(id)` | 收件箱对象 / id | `{ ok }` | 收件箱增量 CRUD |
-| `saveBookmark(b)` / `deleteBookmark(id)` | 收藏对象 / id | `{ ok }` | 收藏增量 CRUD（删除时连带清理 uploads/ 文件） |
+| `saveBookmark(b)` / `updateBookmark(b)` / `deleteBookmark(id)` | 收藏对象 / id | `{ ok }` | 收藏增量 CRUD（删除时连带清理 uploads/ 文件） |
 | `uploadQuestionImage(name, dataUrl)` | 文件名 + dataURL | `{ ok, url }` | 题目原图上传（存 uploads/，写回 question.imgs） |
 | `backupDb()` | 无 | ArrayBuffer | 整库一致性快照（VACUUM INTO）下载 |
 | `saveStudy(seconds, perDay, blurPrompt)` | 秒数 + 按天分布 + 模糊提示 | `{ ok }` | 学习时长与按天分布 upsert |
 | `resetAll()` | 无 | `{ ok }` | 服务端清空全部数据并重播种子（seed-data.js） |
 | `listReviewSets()` / `saveReviewSet(rs)` / `updateReviewSet(rs)` / `deleteReviewSet(id)` | 复习集对象 / id | `{ ok, data }` | 自建复习集 CRUD（`{ id, name, qids: [], createdAt }`） |
+| `listHabits()` / `saveHabit(h)` / `updateHabit(h)` / `deleteHabit(id)` | 习惯对象 / id | `{ ok, data }` | 每日习惯打卡 CRUD（`{ id, name, doneDays: [], createdAt }`） |
 | `restoreDb(name, dataUrl)` | 备份 .db 文件 | `{ ok }` | 从备份恢复（服务端校验 SQLite 头；恢复前自动把当前库备份到 backups/） |
 
-> v1.15.0 说明：`saveSettings` 新增 `theme`（dark/light）、`remindDate`（字符串）、`reviewResume`（对象或 null）三个键；`GET /api/db` 返回相应字段（`theme` / `remindDate` / `reviewResume` / `reviewSets`）。
+> v1.18.0 说明：`saveSettings` 新增 `examDate`（YYYY-MM-DD）、`moduleOn`（`{ hot?, bookmarks? }`）；`GET /api/db` 返回 `examDate` / `moduleOn` / `habits`；`POST /api/bookmarks/:id` 新增 PUT（更新收藏）。
 | `saveStudy(seconds)` | 秒数 | `{ ok }` | 学习时长落库 |
 | `resetAll()` | 无 | 无 | 清空本机数据（仅本地测试用） |
 

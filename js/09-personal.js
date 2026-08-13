@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.17.0 · 09-personal.js（由 app.js 拆分）
+   个人工作台 v1.18.0 · 09-personal.js（由 app.js 拆分）
    个人管理（待办/目标/复盘/收件箱/日历/周月总结/学情周报）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -1078,7 +1078,13 @@ function calDayInfo(dateStr) {
   const goals = personal.goals.filter(g => g.targetDate === dateStr);
   const rv = personal.reviews.find(r => r.day === dateStr);
   const studyMin = Math.floor((study.perDay[dateStr] || 0) / 60);
-  return { todos, goals, rv, studyMin };
+  // ② 到期分布：scheduleOf 的 dueAt 落在该天的题目数（未复习题算"今天到期"）
+  const dueCount = questions.filter(q => {
+    if (displayMastery(q.id).lv.key === "blue") return false;
+    const s = scheduleOf(q.id);
+    return s.lastAt ? fmtDate(s.dueAt) === dateStr : dateStr === fmtDate(Date.now());
+  }).length;
+  return { todos, goals, rv, studyMin, dueCount };
 }
 
 function renderCalendar() {
@@ -1100,6 +1106,7 @@ function renderCalendar() {
     const ds = `${calCursor.y}-${String(calCursor.m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const info = calDayInfo(ds);
     const badges = [];
+    if (info.dueCount) badges.push(`<span class="cal-badge due" title="${info.dueCount} 题到期复习">🔥${info.dueCount}</span>`);
     if (info.todos.length) badges.push(`<span class="cal-badge todo" title="${info.todos.length} 条待办">${info.todos.length}</span>`);
     if (info.goals.length) badges.push(`<span class="cal-badge goal">${info.goals.length}</span>`);
     if (info.rv) badges.push(`<span class="cal-badge rv">✓</span>`);
@@ -1118,7 +1125,7 @@ function renderCalendar() {
   const detail = $("#cal-detail");
   if (detail) detail.innerHTML = `
     <div class="card-head"><div class="card-title">📅 ${calPickDay}</div><span class="tag">${calPickDay === today ? "今天" : ""}</span></div>
-    <div class="small muted mt-8">学习 ${info.studyMin} 分钟</div>
+    <div class="small muted mt-8">学习 ${info.studyMin} 分钟${info.dueCount ? ` · <span class="text-danger">🔥 ${info.dueCount} 题到期复习</span>` : ""}</div>
     ${info.todos.length ? `<div class="small mt-8"><b>待办（${info.todos.length}）</b></div>` + info.todos.map(t => `
       <div class="todo-row"><span class="todo-check" onclick="toggleTodo(${t.id})">${t.done ? "✓" : "○"}</span>
       <span class="todo-title">${esc(t.title)}</span>${prioBadge(t.priority)}</div>`).join("") : `<div class="small muted mt-8">当天没有到期待办</div>`}
@@ -1137,5 +1144,108 @@ function relTime(ts) {
   const d = Math.floor(h / 24);
   if (d < 7) return d + " 天前";
   return fmtDate(ts);
+}
+
+/* ---------------- 每日习惯打卡（v1.18） ---------------- */
+function renderHabitsPanel() {
+  const box = $("#habits-panel");
+  if (!box) return;
+  if (!habits.length) {
+    box.innerHTML = `<div class="small muted">还没有习惯。点「＋ 添加习惯」创建，如：背 50 个单词 / 跑步 30 分钟。</div>`;
+    return;
+  }
+  const today = fmtDate(Date.now());
+  box.innerHTML = habits.map(h => {
+    const done = (h.doneDays || []).includes(today);
+    const total = (h.doneDays || []).length;
+    return `<div class="flex-between set-row">
+      <label class="flex" style="gap:8px;cursor:pointer;min-width:0;">
+        <input type="checkbox" ${done ? "checked" : ""} onchange="toggleHabit(${h.id},this.checked)" />
+        <span style="${done ? "text-decoration:line-through;color:var(--text-3);" : ""}">${esc(h.name)}</span>
+        <span class="tag ${done ? "tag-success" : ""}">🔥 ${total} 天</span>
+      </label>
+      <button class="btn btn-sm btn-danger" onclick="delHabit(${h.id})">删</button>
+    </div>`;
+  }).join("");
+}
+
+function addHabit() {
+  openModal("添加每日习惯", `
+    <div class="field"><label>习惯名称</label><input class="input" id="habit-name" placeholder="如：背 50 个单词 / 跑步 30 分钟" /></div>
+    <div class="small muted">每天勾选打卡，累计天数会显示 🔥 徽章</div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="doAddHabit()">添加</button>`);
+}
+function doAddHabit() {
+  const name = $("#habit-name").value.trim();
+  if (!name) { toast("请输入习惯名称", "error"); return; }
+  const h = { id: personalIdSeq++, name, doneDays: [], createdAt: Date.now() };
+  habits.push(h);
+  apiCall(API.saveHabit(h));
+  closeModal();
+  renderHabitsPanel();
+  toast("习惯已添加，记得每天打卡", "success");
+}
+function toggleHabit(id, checked) {
+  const h = habits.find(x => x.id === id);
+  if (!h) return;
+  const today = fmtDate(Date.now());
+  h.doneDays = h.doneDays || [];
+  if (checked) { if (!h.doneDays.includes(today)) h.doneDays.push(today); }
+  else h.doneDays = h.doneDays.filter(d => d !== today);
+  apiCall(API.updateHabit(h));
+  renderHabitsPanel();
+  toast(checked ? "打卡成功 🔥" : "已取消今日打卡", checked ? "success" : "");
+}
+function delHabit(id) {
+  habits = habits.filter(x => x.id !== id);
+  apiCall(API.deleteHabit(id));
+  renderHabitsPanel();
+  toast("习惯已删除", "success");
+}
+
+/* ---------------- 学情周报导出 Markdown（v1.18） ---------------- */
+function exportLearnReport() {
+  const d = summaryData(summaryRange);
+  const inRange = reviewLogs.filter(l => l.at >= d.start);
+  const wkMap = {};
+  questions.forEach(q => {
+    const keys = q.kps.length ? q.kps : ["未分类"];
+    keys.forEach(k => {
+      const fails = inRange.filter(l => l.qid === q.id && l.result === "fail").length;
+      if (fails > 0) wkMap[k] = (wkMap[k] || 0) + fails;
+    });
+  });
+  const topWk = Object.entries(wkMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const tagCnt = {};
+  inRange.forEach(l => {
+    const q = questions.find(x => x.id === l.qid);
+    if (!q) return;
+    (q.tags.length ? q.tags : ["other"]).forEach(t => { tagCnt[t] = (tagCnt[t] || 0) + 1; });
+  });
+  const tagList = Object.entries(tagCnt).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const md = [
+    `# 学情周报（${summaryRange === "week" ? "本周" : "本月"} · 自 ${d.startKey} 起）`,
+    "",
+    `- 录入题数：${d.added} · 复习次数：${d.reviewed} · 学习时长：${Math.floor(d.studySec / 60)} 分钟`,
+    `- 待办完成：${d.todoDone}/${d.todoTotal} · 复盘：${d.rvCount} 天`,
+    "",
+    "## 薄弱知识点 TOP5",
+    ...(topWk.length ? topWk.map(([k, n]) => `- ${k}（做错 ${n} 次）`) : ["- 期间没有做错记录 🎉"]),
+    "",
+    "## 错因分布",
+    ...(tagList.length ? tagList.map(([t, n]) => { const meta = TAGS.find(x => x.key === t) || { name: t }; return `- ${meta.name}：${n} 次`; }) : ["- 期间没有复习记录"]),
+    "",
+    `生成时间：${new Date().toLocaleString("zh-CN")} · 个人工作台 v${APP_VERSION}`
+  ].join("\n");
+  const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `学情周报-${d.startKey}.md`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+  toast("学情周报已导出 Markdown", "success");
 }
 

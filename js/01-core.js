@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.17.0 · 01-core.js（由 app.js 拆分）
+   个人工作台 v1.18.0 · 01-core.js（由 app.js 拆分）
    工具函数与全局常量（$ / esc / toast / 弹窗 / KaTeX 渲染 / TAGS / LV）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -92,6 +92,19 @@ function renderTex(node, tex, display) {
   node.appendChild(s);
 }
 
+/* 图表实例复用（避免重复 init 告警与内存泄漏） */
+function initChart(el) {
+  if (!el || typeof echarts === "undefined") return null;
+  return echarts.getInstanceByDom(el) || echarts.init(el);
+}
+
+/* 考试倒计时：返回距 examDate 的天数（未设置返回 null；已过返回负数） */
+function examDaysLeft() {
+  if (!examDate) return null;
+  const t = new Date(examDate + "T00:00:00").getTime();
+  return Math.ceil((t - Date.now()) / 86400000);
+}
+
 /* ---------------- 数据模型 ---------------- */
 const TAGS = [
   { key: "knowledge", icon: "🧠", name: "知识点不会", weight: 2 },
@@ -114,5 +127,5 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.17.0";
+const APP_VERSION = "1.18.0";
 

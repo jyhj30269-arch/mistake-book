@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.17.0 -->
+  <!-- 个人工作台 v1.18.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -107,6 +107,7 @@
           </div>
 
           <div id="dash-greeting"></div>
+          <div id="exam-countdown" style="display:none;"></div>
           <div class="grid grid-2 mt-16" id="dash-quick"></div>
           <div class="grid grid-4 mt-16" id="ov-grid"></div>
 
@@ -118,6 +119,17 @@
             <div class="card">
               <div class="card-head"><div class="card-title">✅ 今日待办</div><span class="card-more" onclick="go('todos')">全部 →</span></div>
               <div id="dash-todos"></div>
+            </div>
+          </div>
+
+          <div class="grid grid-2 mt-16">
+            <div class="card">
+              <div class="card-head"><div class="card-title">🔥 每日习惯</div><span class="card-more" onclick="addHabit()">＋ 添加习惯</span></div>
+              <div id="habits-panel"></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><div class="card-title">📋 今日学习计划</div><span class="card-more" onclick="genTodayPlan()">重新生成</span></div>
+              <div id="today-plan"></div>
             </div>
           </div>
 
@@ -229,6 +241,9 @@
                   <span class="small muted">点上方题号可自由选择做哪一道</span>
                 </div>
                 <div class="review-q mt-16" id="rev-question"></div>
+                <div class="mt-8" id="rev-tts-wrap" style="display:none;">
+                  <button class="btn btn-sm" onclick="speakCurrent()">🔊 发音</button>
+                </div>
                 <div class="mt-8" id="rev-write-wrap" style="display:none;">
                   <button class="btn btn-sm" onclick="toggleRevWrite()">✍️ 先默写 / 作答</button>
                   <div id="rev-write-box" style="display:none;" class="mt-8">
@@ -512,6 +527,8 @@
               <label class="small muted flex"><input type="checkbox" id="q-sel-all" onchange="toggleSelectAll(this)" /> 全选</label>
               <button class="btn btn-sm" id="q-batch-btn" onclick="batchClassify()" style="display:none;">批量归类</button>
               <button class="btn btn-sm" id="q-set-btn" onclick="pickReviewSet()" style="display:none;">📁 加入复习集</button>
+              <button class="btn btn-sm" id="q-del-btn" onclick="batchDeleteQuestions()" style="display:none;">批量删除</button>
+              <button class="btn btn-sm" id="q-export-btn" onclick="batchExportQuestions()" style="display:none;">批量导出</button>
             </div>
             <div class="flex">
               <span class="small muted" id="q-count"></span>
@@ -551,7 +568,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.17.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.18.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
@@ -593,6 +610,28 @@
                 <span class="chip" data-v="10">10</span>
               </div>
               <div class="hint">进入「随机复习」页时自动带上这个默认数量。</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><div class="card-title">📅 考研倒计时</div><span class="tag">冲刺模式自动提示</span></div>
+            <div class="flex-between">
+              <div>
+                <div class="small">考试日期</div>
+                <div class="small muted">设置后仪表盘显示倒计时；剩余 ≤60 天自动进入冲刺提示</div>
+              </div>
+              <div class="flex" style="gap:8px;flex-wrap:wrap;">
+                <input class="input" type="date" id="exam-date" style="width:170px;" aria-label="考试日期" />
+                <button class="btn btn-primary" onclick="saveExamDate()">保存</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><div class="card-title">🧩 模块开关</div><span class="tag">隐藏外围模块（数据不删除）</span></div>
+            <div class="flex" style="gap:18px;flex-wrap:wrap;">
+              <label class="flex" style="gap:8px;cursor:pointer;"><input type="checkbox" id="mod-hot" onchange="toggleModule('hot',this.checked)" /> 热点资讯</label>
+              <label class="flex" style="gap:8px;cursor:pointer;"><input type="checkbox" id="mod-bookmarks" onchange="toggleModule('bookmarks',this.checked)" /> 收藏夹</label>
             </div>
           </div>
 
@@ -718,7 +757,7 @@
             </div>
           </div>
           <div class="card mt-16" id="summary-learn-card">
-            <div class="card-head"><div class="card-title">🎓 学情周报（薄弱知识点 / 错因分布）</div><span class="tag">到期队列自动生成</span></div>
+            <div class="card-head"><div class="card-title">🎓 学情周报（薄弱知识点 / 错因分布）</div><div class="flex"><button class="btn btn-sm" onclick="exportLearnReport()">⬇ 导出 Markdown</button><span class="tag">到期队列自动生成</span></div></div>
             <div class="grid grid-2" id="summary-learn"></div>
           </div>
         </section>

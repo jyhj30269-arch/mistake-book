@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.17.0 · 12-boot.js（由 app.js 拆分）
+   个人工作台 v1.18.0 · 12-boot.js（由 app.js 拆分）
    初始化入口、window 暴露、跨标签同步、?auto=1
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -50,6 +50,30 @@ async function doResetDemo() {
     };
   }
   setInterval(studyTick, 1000);
+  applyModuleVisibility();
+  // ③ 复习卡键盘快捷键（做题时）：空格/回车翻答案 · 1/2/3/4 自评 · S 跳过 · ←/→ 切题
+  document.addEventListener("keydown", (e) => {
+    if (currentView !== "dashboard") return;
+    const play = $("#review-play");
+    if (!play || play.style.display === "none") return;
+    const t = e.target;
+    const tag = (t && t.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
+    const ans = $("#rev-answer"), rate = $("#rev-rate");
+    const ansShown = ans && ans.style.display !== "none";
+    const rateShown = rate && rate.style.display !== "none";
+    if (e.key === " " || e.key === "Enter") {
+      if (!ansShown) { e.preventDefault(); revealAnswer(); }
+      return;
+    }
+    if (["1", "2", "3", "4"].includes(e.key)) {
+      if (rateShown) selfRate({ "1": "fail", "2": "stuck", "3": "half", "4": "ok" }[e.key]);
+      return;
+    }
+    if (e.key === "s" || e.key === "S") { skipCurrent(); return; }
+    if (e.key === "ArrowLeft" && !ansShown) { e.preventDefault(); if (reviewIdx > 0) jumpTo(reviewIdx - 1); return; }
+    if (e.key === "ArrowRight" && !ansShown) { e.preventDefault(); if (reviewIdx < reviewQueue.length - 1) jumpTo(reviewIdx + 1); return; }
+  });
   $$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => {
     if (a.dataset.view) { go(a.dataset.view); hideMobileMenu(); }
   }));
@@ -219,6 +243,21 @@ window.renameReviewSet = renameReviewSet;
 window.doRenameReviewSet = doRenameReviewSet;
 window.delReviewSet = delReviewSet;
 window.doDelReviewSet = doDelReviewSet;
+window.saveExamDate = saveExamDate;
+window.toggleModule = toggleModule;
+window.speakQuestion = speakQuestion;
+window.speakCurrent = speakCurrent;
+window.batchDeleteQuestions = batchDeleteQuestions;
+window.doBatchDeleteQuestions = doBatchDeleteQuestions;
+window.batchExportQuestions = batchExportQuestions;
+window.genTodayPlan = genTodayPlan;
+window.reviewWeakNow = reviewWeakNow;
+window.renderHabitsPanel = renderHabitsPanel;
+window.addHabit = addHabit;
+window.doAddHabit = doAddHabit;
+window.toggleHabit = toggleHabit;
+window.delHabit = delHabit;
+window.exportLearnReport = exportLearnReport;
 
 /* 截图辅助：?auto=1 直接进入指定视图（需已登录） */
 if (location.search.includes("auto=1")) {
