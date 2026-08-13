@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · API 服务层（前后端接口契约 v1.13.3）
+   个人工作台 · API 服务层（前后端接口契约 v1.14.0）
    ------------------------------------------------------------
    本文件是前后端的唯一接口契约。业务代码只通过 window.API 访问
    OCR / 数据 / 去重，不直接读写 localStorage 或 fetch。
@@ -395,6 +395,16 @@
       return { ok: true, id: q.id };
     },
 
+    /** 更新一道题（编辑） */
+    async updateQuestion(q) {
+      const res = await fetch(`${this.base}/questions/${q.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(q)
+      });
+      return res.json();
+    },
+
     /** 删除一道题 */
     async deleteQuestion(id) {
       if (this.mode === "remote") {
@@ -423,24 +433,132 @@
       return { ok: true };
     },
 
-    /** 保存学习时长（秒） */
-    async saveStudy(seconds) {
+    /** 保存学习时长（秒）与按天分布（服务端 upsert，增量写） */
+    async saveStudy(seconds, perDay, blurPrompt) {
       if (this.mode === "remote") {
         const res = await fetch(`${this.base}/study`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ seconds })
+          body: JSON.stringify({ seconds, perDay, blurPrompt })
         });
         return res.json();
       }
       const db = readDB() || {};
-      db.study = { seconds, updatedAt: Date.now() };
+      db.study = { seconds, perDay: perDay || {}, blurPrompt: !!blurPrompt, updatedAt: Date.now() };
       writeDB(db);
       return { ok: true };
     },
 
+    /** 保存通用设置（remindOn / reviewCfg） */
+    async saveSettings(patch) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch)
+      });
+      return res.json();
+    },
+
+    /** 保存知识点树（整树替换，表很小，代价低） */
+    async saveTree(tree) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/tree`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tree })
+      });
+      return res.json();
+    },
+
+    /* ================= 个人数据增量接口（todo / goal / 复盘 / 收件箱 / 收藏） ================= */
+
+    async saveTodo(t) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/todos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(t) });
+      return res.json();
+    },
+    async updateTodo(t) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/todos/${t.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(t) });
+      return res.json();
+    },
+    async deleteTodo(id) {
+      if (this.mode !== "remote") return { ok: true };
+      return (await fetch(`${this.base}/todos/${id}`, { method: "DELETE" })).json();
+    },
+    async saveGoal(g) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/goals`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(g) });
+      return res.json();
+    },
+    async updateGoal(g) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/goals/${g.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(g) });
+      return res.json();
+    },
+    async deleteGoal(id) {
+      if (this.mode !== "remote") return { ok: true };
+      return (await fetch(`${this.base}/goals/${id}`, { method: "DELETE" })).json();
+    },
+    async saveDailyReview(rv) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/daily-reviews`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rv) });
+      return res.json();
+    },
+    async saveInboxItem(it) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/inbox`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(it) });
+      return res.json();
+    },
+    async updateInboxItem(it) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/inbox/${it.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(it) });
+      return res.json();
+    },
+    async deleteInboxItem(id) {
+      if (this.mode !== "remote") return { ok: true };
+      return (await fetch(`${this.base}/inbox/${id}`, { method: "DELETE" })).json();
+    },
+    async saveBookmark(b) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/bookmarks`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+      return res.json();
+    },
+    async deleteBookmark(id) {
+      if (this.mode !== "remote") return { ok: true };
+      return (await fetch(`${this.base}/bookmarks/${id}`, { method: "DELETE" })).json();
+    },
+
+    /** 上传题目原图（存 uploads/，返回可访问 URL） */
+    async uploadQuestionImage(name, dataUrl) {
+      if (this.mode !== "remote") return { ok: false, url: "" };
+      const res = await fetch(`${this.base}/question-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, dataUrl })
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((j && j.message) || `图片上传失败 ${res.status}`);
+      return j;
+    },
+
+    /** 下载整库备份（VACUUM INTO 一致性快照） */
+    async backupDb() {
+      if (this.mode !== "remote") throw new Error("本地模式不支持数据库备份");
+      const res = await fetch(`${this.base}/backup`);
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error((j && j.message) || `备份失败 ${res.status}`);
+      }
+      return res.arrayBuffer();
+    },
+
     /** 清空本机数据（恢复演示数据用） */
     resetAll() {
+      if (this.mode === "remote") {
+        return fetch(`${this.base}/reset`, { method: "POST" }).then(res => res.json());
+      }
       localStorage.removeItem(LS_KEY);
     }
   };

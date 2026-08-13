@@ -1,7 +1,11 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.13.3）
+   个人工作台 · 本地服务（v1.14.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.14.0：个人数据/题目/复习记录全部支持增量写接口；题目原图上传
+   （/api/question-image）；整库备份（/api/backup，VACUUM INTO）与
+   启动自动备份（backups/，保留 7 份）；删除收藏连带清理上传文件；
+   重置演示数据（/api/reset）统一走 seed-data.js 重播。
    v1.13.3：修复畸形 URL 导致服务崩溃；除登录相关与试卷 HTML（随机 token 保护）
    外的所有 API 强制 Cookie 会话鉴权；移除 CORS 通配；静态文件禁止下载
    数据库与 .git；过期会话定期清理。
@@ -21,6 +25,16 @@ const DB_FILE = process.env.DB_FILE || path.join(ROOT, "mistake-book.db");
 const MINERU_CLI = path.join(process.env.APPDATA || "", "npm", "mineru-open-api.cmd");
 const MINERU_AVAILABLE = fs.existsSync(MINERU_CLI) && process.env.MINERU_DISABLE !== "1";
 
+/* Node 版本检查：node:sqlite 需要 Node >= 22.5 */
+(function checkNodeVersion() {
+  const v = process.versions.node.split(".").map(Number);
+  if (!(v[0] > 22 || (v[0] === 22 && v[1] >= 5))) {
+    console.error(`当前 Node.js 版本 ${process.versions.node} 过旧：本应用依赖 node:sqlite，需要 Node.js >= 22.5.0。`);
+    console.error("请到 https://nodejs.org 安装最新的 LTS 版本后重试。");
+    process.exit(1);
+  }
+})();
+
 const db = new DatabaseSync(DB_FILE);
 db.exec(`
   PRAGMA journal_mode = WAL;
@@ -29,7 +43,8 @@ db.exec(`
     type TEXT, subject TEXT, sub_subject TEXT, chapter TEXT,
     kps TEXT, tags TEXT, title_tex TEXT, solution_tex TEXT,
     wrong_answer TEXT, note TEXT, marks TEXT, created_at INTEGER,
-    urgent INTEGER DEFAULT 0, calc_weak INTEGER DEFAULT 0, need_consolidate INTEGER DEFAULT 0
+    urgent INTEGER DEFAULT 0, calc_weak INTEGER DEFAULT 0, need_consolidate INTEGER DEFAULT 0,
+    imgs TEXT DEFAULT '[]'
   );
   CREATE TABLE IF NOT EXISTS review_logs(
     id INTEGER PRIMARY KEY, qid INTEGER, at INTEGER, result TEXT
@@ -110,6 +125,7 @@ ensureColumn("goals", "linked_todos", "TEXT DEFAULT '[]'");
 ensureColumn("goals", "milestones", "TEXT DEFAULT '[]'");
 ensureColumn("goals", "note", "TEXT DEFAULT ''");
 ensureColumn("daily_reviews", "stats", "TEXT DEFAULT '{}'");
+ensureColumn("questions", "imgs", "TEXT DEFAULT '[]'");
 /* 健康模块移除：老库直接删除健康表 */
 db.exec("DROP TABLE IF EXISTS health_logs;");
 
@@ -193,6 +209,22 @@ function seedUsersIfEmpty() {
 }
 seedUsersIfEmpty();
 
+/* 启动自动备份：每天一份（VACUUM INTO 一致性快照），保留最近 7 份 */
+function autoBackup() {
+  const dir = path.join(ROOT, "backups");
+  fs.mkdirSync(dir, { recursive: true });
+  const today = new Date().toISOString().slice(0, 10);
+  const target = path.join(dir, `mistake-book-${today}.db`);
+  if (fs.existsSync(target)) return;
+  try {
+    db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
+    const olds = fs.readdirSync(dir).filter(f => /^mistake-book-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
+    while (olds.length > 7) fs.unlinkSync(path.join(dir, olds.shift()));
+    console.log(`已自动备份数据库：${target}`);
+  } catch (e) { console.warn("自动备份失败（可忽略）：", e.message); }
+}
+autoBackup();
+
 /* ---------- 数据组装 ---------- */
 function flattenTree() {
   const rows = db.prepare("SELECT id, parent_id, name, kind, ord FROM nodes ORDER BY ord").all();
@@ -217,7 +249,8 @@ function readQuestions() {
     kps: JSON.parse(r.kps || "[]"), tags: JSON.parse(r.tags || "[]"),
     titleTex: r.title_tex, solutionTex: r.solution_tex, wrongAnswer: r.wrong_answer,
     note: r.note, marks: JSON.parse(r.marks || "{}"), createdAt: r.created_at,
-    urgent: !!r.urgent, calcWeak: !!r.calc_weak, needConsolidate: !!r.need_consolidate
+    urgent: !!r.urgent, calcWeak: !!r.calc_weak, needConsolidate: !!r.need_consolidate,
+    imgs: JSON.parse(r.imgs || "[]")
   }));
 }
 
@@ -313,13 +346,14 @@ function saveDb(data) {
     db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks;");
     const insQ = db.prepare(`INSERT INTO questions
       (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
-       wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+       wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate, imgs)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
     for (const q of (data.questions || [])) {
       insQ.run(q.id, q.type, q.subject, q.subSubject, q.chapter,
         JSON.stringify(q.kps || []), JSON.stringify(q.tags || []), q.titleTex, q.solutionTex || "",
         q.wrongAnswer || "", q.note || "", JSON.stringify(q.marks || {}), q.createdAt,
-        q.urgent ? 1 : 0, q.calcWeak ? 1 : 0, q.needConsolidate ? 1 : 0);
+        q.urgent ? 1 : 0, q.calcWeak ? 1 : 0, q.needConsolidate ? 1 : 0,
+        JSON.stringify(q.imgs || []));
     }
     const insL = db.prepare("INSERT INTO review_logs(id, qid, at, result) VALUES (?,?,?,?)");
     (data.reviewLogs || []).forEach(l => insL.run(l.id, l.qid, l.at, l.result));
@@ -651,15 +685,35 @@ const server = http.createServer(async (req, res) => {
         writeQueue = writeQueue.then(() => {
           const insQ = db.prepare(`INSERT INTO questions
             (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
-             wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+             wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate, imgs)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
           insQ.run(body.id, body.type, body.subject, body.subSubject, body.chapter,
             JSON.stringify(body.kps || []), JSON.stringify(body.tags || []), body.titleTex, body.solutionTex || "",
             body.wrongAnswer || "", body.note || "", JSON.stringify(body.marks || {}), body.createdAt,
-            body.urgent ? 1 : 0, body.calcWeak ? 1 : 0, body.needConsolidate ? 1 : 0);
+            body.urgent ? 1 : 0, body.calcWeak ? 1 : 0, body.needConsolidate ? 1 : 0,
+            JSON.stringify(body.imgs || []));
         });
         await writeQueue;
         sendJson(res, 200, { ok: true, id: body.id });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    const putM = p.match(/^\/api\/questions\/(\d+)$/);
+    if (putM && req.method === "PUT") {
+      try {
+        const body = await readBody(req);
+        writeQueue = writeQueue.then(() => {
+          db.prepare(`UPDATE questions SET type=?, subject=?, sub_subject=?, chapter=?, kps=?, tags=?,
+            title_tex=?, solution_tex=?, wrong_answer=?, note=?, marks=?, urgent=?, calc_weak=?,
+            need_consolidate=?, imgs=? WHERE id=?`)
+            .run(body.type, body.subject, body.subSubject, body.chapter,
+              JSON.stringify(body.kps || []), JSON.stringify(body.tags || []), body.titleTex, body.solutionTex || "",
+              body.wrongAnswer || "", body.note || "", JSON.stringify(body.marks || {}),
+              body.urgent ? 1 : 0, body.calcWeak ? 1 : 0, body.needConsolidate ? 1 : 0,
+              JSON.stringify(body.imgs || []), Number(putM[1]));
+        });
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
     }
@@ -686,9 +740,224 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/study" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('study_seconds', ?)").run(String(body.seconds || 0)));
+        writeQueue = writeQueue.then(() => {
+          db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('study_seconds', ?)").run(String(body.seconds || 0));
+          if (typeof body.blurPrompt === "boolean") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('blur_prompt', ?)").run(String(body.blurPrompt));
+          const days = body.perDay || {};
+          const ins = db.prepare("INSERT INTO study_days(day, seconds) VALUES (?,?) ON CONFLICT(day) DO UPDATE SET seconds=excluded.seconds");
+          for (const [day, sec] of Object.entries(days)) ins.run(String(day), Number(sec) || 0);
+        });
         await writeQueue;
         sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (p === "/api/settings" && req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        writeQueue = writeQueue.then(() => {
+          if (typeof body.remindOn === "boolean") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('remindOn', ?)").run(String(body.remindOn));
+          if (body.reviewCfg && typeof body.reviewCfg === "object") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('reviewCfg', ?)").run(JSON.stringify(body.reviewCfg));
+        });
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (p === "/api/tree" && req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        writeQueue = writeQueue.then(() => {
+          db.exec("DELETE FROM nodes");
+          const insN = db.prepare("INSERT INTO nodes(id, parent_id, name, kind, ord) VALUES (?,?,?,?,?)");
+          let ord = 0;
+          const walk = (nodes, parentId, kind) => {
+            (nodes || []).forEach(n => {
+              const id = typeof n === "string" ? n : n.id;
+              const name = typeof n === "string" ? n : n.name;
+              insN.run(id, parentId, name, kind, ord++);
+              if (typeof n !== "string" && n.children) walk(n.children, id, kind === "subject" ? "sub" : kind === "sub" ? "chapter" : "kp");
+            });
+          };
+          walk(body.tree || [], null, "subject");
+        });
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    /* ---------- 个人数据增量接口（todo / goal / 复盘 / 收件箱 / 收藏） ---------- */
+    if (p === "/api/todos" && req.method === "POST") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO todos(id, title, done, due, priority, subtasks, tags, note, remind, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+          .run(b.id ?? null, String(b.title || "").slice(0, 200), b.done ? 1 : 0, b.due || "", b.priority || 0,
+            JSON.stringify(b.subtasks || []), JSON.stringify(b.tags || []), b.note || "", b.remind || "", b.createdAt || Date.now()));
+        await writeQueue;
+        sendJson(res, 200, { ok: true, id: b.id });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    const todoM = p.match(/^\/api\/todos\/(\d+)$/);
+    if (todoM && req.method === "PUT") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`UPDATE todos SET title=?, done=?, due=?, priority=?, subtasks=?, tags=?, note=?, remind=? WHERE id=?`)
+          .run(String(b.title || "").slice(0, 200), b.done ? 1 : 0, b.due || "", b.priority || 0,
+            JSON.stringify(b.subtasks || []), JSON.stringify(b.tags || []), b.note || "", b.remind || "", Number(todoM[1])));
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (todoM && req.method === "DELETE") {
+      writeQueue = writeQueue.then(() => db.prepare("DELETE FROM todos WHERE id = ?").run(Number(todoM[1])));
+      await writeQueue;
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (p === "/api/goals" && req.method === "POST") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO goals(id, title, category, progress, milestone, target_date, status, linked_todos, milestones, note, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+          .run(b.id ?? null, String(b.title || "").slice(0, 200), b.category || "学习", b.progress || 0, b.milestone || "",
+            b.targetDate || "", b.status || "active", JSON.stringify(b.linkedTodoIds || []),
+            JSON.stringify(b.milestones || []), b.note || "", b.createdAt || Date.now()));
+        await writeQueue;
+        sendJson(res, 200, { ok: true, id: b.id });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    const goalM = p.match(/^\/api\/goals\/(\d+)$/);
+    if (goalM && req.method === "PUT") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`UPDATE goals SET title=?, category=?, progress=?, milestone=?, target_date=?, status=?, linked_todos=?, milestones=?, note=? WHERE id=?`)
+          .run(String(b.title || "").slice(0, 200), b.category || "学习", b.progress || 0, b.milestone || "",
+            b.targetDate || "", b.status || "active", JSON.stringify(b.linkedTodoIds || []),
+            JSON.stringify(b.milestones || []), b.note || "", Number(goalM[1])));
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (goalM && req.method === "DELETE") {
+      writeQueue = writeQueue.then(() => db.prepare("DELETE FROM goals WHERE id = ?").run(Number(goalM[1])));
+      await writeQueue;
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (p === "/api/daily-reviews" && req.method === "POST") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO daily_reviews(day, done, stuck, plan, mood, stats, updated_at) VALUES (?,?,?,?,?,?,?)
+          ON CONFLICT(day) DO UPDATE SET done=excluded.done, stuck=excluded.stuck, plan=excluded.plan,
+          mood=excluded.mood, stats=excluded.stats, updated_at=excluded.updated_at`)
+          .run(b.day, b.done || "", b.stuck || "", b.plan || "", b.mood || "",
+            JSON.stringify(b.stats || {}), b.updatedAt || Date.now()));
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (p === "/api/inbox" && req.method === "POST") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO inbox_items(id, text, tags, status, created_at) VALUES (?,?,?,?,?)`)
+          .run(b.id ?? null, String(b.text || "").slice(0, 1000), JSON.stringify(b.tags || []), b.status || "open", b.createdAt || Date.now()));
+        await writeQueue;
+        sendJson(res, 200, { ok: true, id: b.id });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    const inboxM = p.match(/^\/api\/inbox\/(\d+)$/);
+    if (inboxM && req.method === "PUT") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`UPDATE inbox_items SET text=?, tags=?, status=? WHERE id=?`)
+          .run(String(b.text || "").slice(0, 1000), JSON.stringify(b.tags || []), b.status || "open", Number(inboxM[1])));
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (inboxM && req.method === "DELETE") {
+      writeQueue = writeQueue.then(() => db.prepare("DELETE FROM inbox_items WHERE id = ?").run(Number(inboxM[1])));
+      await writeQueue;
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+    if (p === "/api/bookmarks" && req.method === "POST") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO bookmarks(id, title, kind, url, note, tags, created_at) VALUES (?,?,?,?,?,?,?)`)
+          .run(b.id ?? null, String(b.title || "").slice(0, 200), b.kind || "link",
+            String(b.url || "").slice(0, 2000), String(b.note || "").slice(0, 1000),
+            JSON.stringify(b.tags || []), b.createdAt || Date.now()));
+        await writeQueue;
+        sendJson(res, 200, { ok: true, id: b.id });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    const bmM = p.match(/^\/api\/bookmarks\/(\d+)$/);
+    if (bmM && req.method === "DELETE") {
+      try {
+        const id = Number(bmM[1]);
+        writeQueue = writeQueue.then(() => {
+          const row = db.prepare("SELECT url FROM bookmarks WHERE id = ?").get(id);
+          db.prepare("DELETE FROM bookmarks WHERE id = ?").run(id);
+          // 连带删除上传的文件（仅限本应用生成的上传文件）
+          if (row && row.url && row.url.startsWith("/uploads/")) {
+            const name = path.basename(row.url);
+            if (/^bm-[0-9a-f]{16}\./.test(name)) fs.unlink(path.join(ROOT, "uploads", name), () => {});
+          }
+        });
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (p === "/api/reset" && req.method === "POST") {
+      try {
+        writeQueue = writeQueue.then(() => {
+          db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks;");
+          seedIfEmpty();
+        });
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (p === "/api/backup" && req.method === "GET") {
+      try {
+        const backupFile = path.join(os.tmpdir(), `mb-backup-${Date.now()}.db`);
+        db.exec(`VACUUM INTO '${backupFile.replace(/'/g, "''")}'`);
+        const buf = fs.readFileSync(backupFile);
+        fs.unlink(backupFile, () => {});
+        const day = new Date().toISOString().slice(0, 10);
+        res.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": `attachment; filename="mistake-book-backup-${day}.db"`
+        });
+        res.end(buf);
+      } catch (e) { sendJson(res, 500, { code: 50000, message: "备份失败：" + e.message }); }
+      return;
+    }
+    if (p === "/api/question-image" && req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const name = String(body.name || "question.png");
+        const buf = Buffer.from(String(body.dataUrl || "").split(",")[1] || "", "base64");
+        if (!buf.length) return sendJson(res, 400, { code: 40001, message: "图片数据为空" });
+        const ext = path.extname(name).toLowerCase();
+        if (![".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].includes(ext)) {
+          return sendJson(res, 400, { code: 40002, message: "不支持的图片类型：" + (ext || "未知") });
+        }
+        const dir = path.join(ROOT, "uploads");
+        fs.mkdirSync(dir, { recursive: true });
+        const safe = "bm-" + crypto.randomBytes(8).toString("hex") + ext;
+        fs.writeFileSync(path.join(dir, safe), buf);
+        sendJson(res, 200, { ok: true, url: "/uploads/" + safe });
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
     }

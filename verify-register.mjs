@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+const ROOT = fileURLToPath(import.meta.url).replace(/[\\/][^\\/]*$/, "");
 
 const EXE = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const PORT = 9394;
@@ -11,7 +13,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const testDir = mkdtempSync(join(tmpdir(), "mb-reg-"));
 const server = spawn("node", ["server.js"], {
-  cwd: "C:/Users/32949/Desktop/assets",
+  cwd: ROOT,
   env: { ...process.env, PORT: String(PORT), DB_FILE: join(testDir, "t.db"), MINERU_DISABLE: "1" },
   stdio: "ignore"
 });

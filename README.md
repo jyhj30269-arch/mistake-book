@@ -4,11 +4,12 @@
 
 ## 版本
 
-- 当前版本：**v1.13.3**
+- 当前版本：**v1.14.0**
 - 版本规则见 `AGENTS.md`：每次修改代码必须升级版本号并推送到 GitHub。
 
-## 当前能力（v1.13.3）
+## 当前能力（v1.14.0）
 
+- v1.14.0（架构与学习功能）：全部写操作改为增量 API（题目/复习记录/待办/目标/复盘/收件箱/收藏/设置/知识点树），仅导入/覆盖/重置走整库快照；多标签页打开时自动同步数据（BroadcastChannel）；**错题原图落库**（拍照/粘贴的原图存 uploads/，详情页与复习卡可查看）；**数据库备份**：设置页一键下载整库快照（VACUUM INTO），服务启动自动备份（backups/，保留 7 份）；删除收藏连带清理上传文件；**间隔重复调度（SM-2 轻量版）**：按复习记录推导到期时间，推荐与抽题到期优先，详情页显示下次复习时间；复习配置新增**错因标签专项筛选**；复习卡可先「回忆错因」再看答案；「重置演示数据」由服务端重播种子（数据源统一 seed-data.js）；新增 `package.json`（engines ≥ Node 22.5 + npm scripts）与 GitHub Actions CI（版本校验 + 冒烟/布局/注册/抽题/调度测试）；`scripts/check-version.mjs` 校验版本号单一来源。
 - v1.13.3 修复（安全加固）：畸形 URL（如 `/%zz`）不再导致服务崩溃；除登录/注册/会话查询/试卷 HTML 外的全部 API 强制 Cookie 会话鉴权（未登录返回 401）；移除 CORS 通配头（任意网页不再能跨站读写本机数据库）；静态文件禁止下载 SQLite 数据库 / `.git` / `node_modules`；过期会话每小时自动清理；登录成功后才加载数据。
 - v1.13.2 修复：批量归类全链路可用、知识点导航筛选生效、横向树布局、补齐 questions/ocr-status 接口。
 - v1.13.1 修复：快速添加周几日期（周X/下周X/下下周X）精确换算、非优先级 `!` 内容不再被吞、AI 日报正常渲染、移动端新增「更多」抽屉补齐全部页面入口、JSON 备份/导入/覆盖包含个人数据、重置演示数据清空个人数据、收藏上传类型白名单、热点话题时间与中文分类、演示通知真实数字等。
@@ -69,9 +70,13 @@ node smoke-test.mjs     # 功能链路：单题/批量录入、OCR、持久化
 node layout-check.mjs   # 桌面/移动布局检查
 node feature-check.mjs  # 新功能回归检查
 node verify-personal.mjs # 个人工作台功能检查（总览/待办/目标/收件箱/日历/复盘/复习筛选/收藏夹/热点/试卷导出/持久化）
+node verify-scheduler.mjs # 间隔重复调度（SM-2）与错因/原图复习功能检查
+node verify-register.mjs # 注册/登录/登出流程
+node verify-review-algo.mjs # 抽题算法覆盖性验证
 node browser-shots.mjs chrome   # Chrome 截图 + 跨浏览器验证
 node browser-shots.mjs edge     # Edge 截图 + 跨浏览器验证
 node browser-shots-personal.mjs chrome  # 个人新页面截图
+node scripts/check-version.mjs  # 版本号单一来源校验
 ```
 
 ## 目录

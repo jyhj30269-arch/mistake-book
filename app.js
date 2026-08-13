@@ -1,7 +1,10 @@
 /* ============================================================
-   个人工作台 · 业务逻辑 v1.13.3
-   版本：v1.13.3（修复：服务端 API 强制登录鉴权、畸形 URL 崩溃、
-   移除 CORS 通配、静态文件禁止下载数据库/.git；登录成功后才加载数据）
+   个人工作台 · 业务逻辑 v1.14.0
+   版本：v1.14.0（增量写改造：单对象变更走增量 API，导入/重置走整库快照；
+   跨标签页 BroadcastChannel 同步；错题原图落库并详情/复习展示；
+   数据库备份按钮 + 服务端启动自动备份；删除收藏连带清理上传文件；
+   SM-2 轻量间隔重复调度：到期优先推荐/抽题、详情页下次复习时间；
+   错因标签专项筛选、复习卡回忆错因；种子数据统一走服务端）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
    仪表盘总览（问候/概览卡/快捷入口/目标进度/今日待办/最近动态）/
    今日待办（子任务/优先级/标签/提醒/列表看板/快速添加解析）/
@@ -107,7 +110,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.13.3";
+const APP_VERSION = "1.14.0";
 
 const TREE = [
   {
@@ -174,42 +177,8 @@ function mkQ(o) {
   };
 }
 
-function seed() {
-  const now = Date.now();
-  const d = n => now - n * 86400000;
-  questions = [
-    mkQ({ id: 1, titleTex: "\\lim_{x \\to 0} \\frac{\\sin x - x}{x^3}", solutionTex: "由泰勒展开：\\sin x = x - \\frac{x^3}{6} + o(x^3)，原式 = \\lim \\frac{-x^3/6 + o(x^3)}{x^3} = -\\frac{1}{6}", chapter: "ch-c1", kps: ["极限计算"], tags: ["method"], createdAt: d(8), note: "关键：看到 sin x − x 要想到泰勒展开，洛必达要三次很慢", marks: { rescratch: true } }),
-    mkQ({ id: 2, titleTex: "设 f(x) 在 [0,1] 上连续，证明 \\exists \\xi \\in (0,1) 使 f(\\xi) = \\xi", solutionTex: "构造 F(x) = f(x) - x，F(0) = f(0) \\ge 0，F(1) = f(1) - 1 \\le 0，由零点定理得证", chapter: "ch-c1", kps: ["极限计算"], tags: ["knowledge"], createdAt: d(6), note: "" }),
-    mkQ({ id: 3, titleTex: "\\int_0^1 x e^x \\, dx", solutionTex: "分部积分：= [x e^x]_0^1 - \\int_0^1 e^x dx = e - (e - 1) = 1", chapter: "ch-c3", kps: ["定积分计算"], tags: ["calc"], createdAt: d(3), note: "分部积分符号别漏" }),
-    mkQ({ id: 4, titleTex: "计算 \\iint_D (x + y) \\, dxdy，D: x^2 + y^2 \\le 1", solutionTex: "极坐标：= \\int_0^{2\\pi} \\int_0^1 r(\\cos\\theta + \\sin\\theta) r \\, dr d\\theta = 0", chapter: "ch-c5", kps: ["二重积分"], tags: ["method"], createdAt: d(1) }),
-    mkQ({ id: 5, titleTex: "求 f(x) = e^x 在 x=0 处的泰勒展开到 3 阶", solutionTex: "e^x = 1 + x + \\frac{x^2}{2} + \\frac{x^3}{6} + o(x^3)", chapter: "ch-c1", kps: ["极限计算"], tags: ["calc"], createdAt: d(12) }),
-    mkQ({ id: 6, titleTex: "解微分方程 y' + y = e^{-x}", solutionTex: "一阶线性：y = e^{-\\int dx}(\\int e^{-x} e^{\\int dx} dx + C) = e^{-x}(x + C)", chapter: "", kps: [], tags: ["knowledge"], createdAt: d(10) }),
-    mkQ({ id: 7, titleTex: "求曲线 y = x^2 与 y = x 围成的面积", solutionTex: "S = \\int_0^1 (x - x^2) dx = \\frac{1}{6}", chapter: "ch-c3", kps: ["定积分计算"], tags: ["calc"], createdAt: d(20) }),
-    mkQ({ id: 8, titleTex: "证明 r(A) = r(A^T)", solutionTex: "行秩 = 列秩，用初等变换化阶梯形", chapter: "ch-l2", kps: ["矩阵的秩"], tags: ["method"], createdAt: d(18) }),
-    mkQ({ id: 9, titleTex: "A = \\begin{pmatrix} 2 & 1 \\\\ 0 & 2 \\end{pmatrix} 能否对角化？", solutionTex: "特征值 λ=2 重根，特征向量只有一个，不能对角化", chapter: "ch-l5", kps: ["相似对角化"], tags: ["knowledge"], createdAt: d(4) }),
-    mkQ({ id: 10, titleTex: "两批产品合格率分别为 0.9、0.8，任取一件求合格概率", solutionTex: "全概率：P = \\frac{1}{2} \\times 0.9 + \\frac{1}{2} \\times 0.8 = 0.85", chapter: "ch-p1", kps: ["全概率与贝叶斯公式"], tags: ["calc"], createdAt: d(2) }),
-    mkQ({ id: 11, type: "vocabulary", subject: "subj-eng", subSubject: "ss-word", chapter: "ch-w1", kps: ["动词辨析"], titleTex: "determine / decide / conclude", solutionTex: "determine 确定（客观）· decide 决定（主观）· conclude 推断（结论）", tags: ["other"], createdAt: d(1) }),
-    mkQ({ id: 12, type: "problem", subject: "subj-eng", subSubject: "ss-read", chapter: "ch-r1", kps: [], titleTex: "阅读理解推理题：作者态度题解题方法", solutionTex: "找转折词 but/however，态度词 positive/negative/neutral", tags: ["method"], createdAt: d(5) }),
-    mkQ({ id: 13, type: "essay", subject: "subj-eng", subSubject: "ss-essay", chapter: "ch-e1", kps: [], titleTex: "图画作文开头模板句", solutionTex: "As is vividly depicted in the picture, ... The picture is thought-provoking in that ...", tags: ["other"], createdAt: d(9) }),
-    mkQ({ id: 14, type: "problem", subject: "subj-408", subSubject: "ss-ds", chapter: "ch-d6", kps: ["B 树与 B+ 树"], titleTex: "B 树与 B+ 树的区别", solutionTex: "B+ 树数据都在叶子、叶子链表、更适合范围查询和数据库索引", tags: ["knowledge"], createdAt: d(11) }),
-    mkQ({ id: 15, type: "problem", subject: "subj-408", subSubject: "ss-net", chapter: "ch-n5", kps: ["TCP 可靠传输"], titleTex: "TCP 三次握手各状态含义", solutionTex: "SYN_SENT / SYN_RCVD / ESTABLISHED，防历史连接", tags: ["careless"], createdAt: d(14) })
-  ];
-
-  // 预设复习记录（产生演示掌握度）
-  const R = (qid, at, result) => reviewLogs.push({ id: ++reviewSeq, qid, at, result });
-  R(1, d(8), "fail"); R(1, d(7), "fail"); R(1, d(5), "fail"); // ⛔ 顽固错题
-  R(2, d(6), "fail"); R(2, d(4), "half"); R(2, d(2), "fail"); // 🔴 重点攻克（连续 fail 2）
-  R(3, d(3), "fail"); // 🟠 需要关注
-  R(5, d(12), "ok"); R(5, d(8), "fail"); R(5, d(3), "half"); // 🟡 基本掌握
-  R(6, d(10), "ok"); R(6, d(6), "ok"); // 🟢 比较掌握
-  R(7, d(20), "ok"); R(7, d(12), "ok"); R(7, d(4), "ok"); // ✅ 完全掌握
-  R(8, d(18), "ok"); R(8, d(9), "ok"); R(8, d(2), "ok"); // ✅
-  R(9, d(4), "fail"); R(9, d(1), "fail"); // 🔴（连续 fail 2）
-  R(12, d(5), "fail"); // 🟠
-  R(13, d(9), "ok"); R(13, d(2), "fail"); // 🟡
-  R(14, d(11), "ok"); R(14, d(5), "fail"); R(14, d(1), "half"); // 🟡（最新 half，保持）
-  R(15, d(14), "ok"); R(15, d(7), "ok"); // 🟢
-}
+/* 演示数据（questions / reviewLogs / tree）统一由服务端 seed-data.js 播种，
+   前端不再内置副本；「重置演示数据」走服务端 /api/reset 重播。 */
 
 /* ---------------- 掌握度 ---------------- */
 function logsOf(qid) {
@@ -257,6 +226,44 @@ function displayMastery(qid) {
   };
   const lv = drop[m.lv.key] ? LV[drop[m.lv.key]] : m.lv;
   return { ...m, lv, decay: true };
+}
+
+/* ---------------- 间隔重复调度（SM-2 轻量版，由复习记录推导，无额外状态） ---------------- */
+const SM2 = { INITIAL_EASE: 2.5, MIN_EASE: 1.3 };
+
+/* 按时间序模拟 SM-2：返回 { dueAt, ease, intervalDays, lapses } */
+function scheduleOf(qid) {
+  const logs = logsOf(qid);
+  if (!logs.length) return { dueAt: Date.now(), ease: SM2.INITIAL_EASE, intervalDays: 0, lapses: 0, lastAt: null };
+  let ease = SM2.INITIAL_EASE, interval = 0, lapses = 0, lastAt = logs[0].at;
+  for (const l of logs) {
+    lastAt = l.at;
+    if (l.result === "ok") {
+      interval = interval === 0 ? 1 : Math.round(interval * ease);
+      if (interval < 1) interval = 1;
+    } else if (l.result === "half") {
+      interval = Math.max(1, Math.round(interval * 0.5));
+      ease = Math.max(SM2.MIN_EASE, ease - 0.1);
+    } else { // fail / stuck：重置间隔并降难度系数
+      ease = Math.max(SM2.MIN_EASE, ease - 0.2);
+      interval = 1;
+      lapses++;
+    }
+  }
+  return { dueAt: lastAt + interval * 86400000, ease, intervalDays: interval, lapses, lastAt };
+}
+
+/* 是否到期（含从未复习 = 立即到期） */
+function isDue(qid) { return scheduleOf(qid).dueAt <= Date.now(); }
+
+/* 下次复习的友好文案 */
+function nextDueText(qid) {
+  const s = scheduleOf(qid);
+  if (!s.lastAt) return "未复习 · 可随时首刷";
+  const days = Math.ceil((s.dueAt - Date.now()) / 86400000);
+  if (days <= 0) return `今天到期（间隔 ${s.intervalDays} 天）`;
+  if (days === 1) return "明天到期";
+  return `${days} 天后到期（间隔 ${s.intervalDays} 天）`;
 }
 
 function lvTag(lv, decay) {
@@ -358,7 +365,7 @@ async function doLogin() {
     window.__currentUser = u;
     // 登录成功后才加载数据（服务端 API 已强制会话鉴权）
     const ok = await loadLocal();
-    if (!ok) { seed(); persistLocal(); }
+    if (!ok) toast("数据加载失败：本地服务异常，请检查服务", "error");
     enterApp();
     toast(`欢迎，${u}`, "success");
   } catch (e) {
@@ -400,8 +407,8 @@ function recScore(q) {
 
 function recommendQuestions(n) {
   return questions
-    .map(q => ({ q, s: recScore(q) }))
-    .sort((a, b) => b.s - a.s)
+    .map(q => ({ q, s: recScore(q), due: isDue(q.id) ? 0 : 1 })) // P3：到期题优先
+    .sort((a, b) => a.due - b.due || b.s - a.s)
     .slice(0, n)
     .map(x => x.q);
 }
@@ -413,7 +420,8 @@ function renderDashboard() {
 
   const rec = recommendQuestions(10);
   $("#rec-count").textContent = rec.length;
-  $("#rec-desc").textContent = `已按"到期最久 + 掌握度差 + 错因权重"排序，前 ${rec.length} 道；可手动调数量`;
+  const dueToday = questions.filter(q => isDue(q.id) && displayMastery(q.id).lv.key !== "blue").length;
+  $("#rec-desc").textContent = `今日到期 ${dueToday} 题 · 已按"到期优先 + 掌握度差 + 错因权重"排序，前 ${rec.length} 道；可手动调数量`;
   window.__rec = rec;
   renderRecPanel();
 
@@ -954,15 +962,16 @@ function saveCurrentQuestion() {
 
 function saveAllQuestions() {
   captureCurrent();
-  let n = 0;
-  inputQueue.forEach(it => {
-    if (!it.titleTex || it.status === "saved") return;
-    questions.push(collectForm(it.titleTex, it.solutionTex, it.wrongAnswer));
+  const pending = inputQueue.filter(it => it.titleTex && it.status !== "saved");
+  if (!pending.length) { toast("没有待保存的题目（需识别完成且已填题面）", "error"); return; }
+  const n = pending.length;
+  pending.forEach(it => {
+    const q = collectForm(it.titleTex, it.solutionTex, it.wrongAnswer);
+    questions.push(q);
+    attachImages(q, it.qImgId, it.sImgId);       // 原图异步落库（P2）
+    apiCall(API.saveQuestion(q));                // 增量写（P1）
     it.status = "saved";
-    n++;
   });
-  if (!n) { toast("没有待保存的题目（需识别完成且已填题面）", "error"); return; }
-  persistLocal();
   inputQueue = [];
   inputImgs = [];
   inputPairs = [];
@@ -973,14 +982,32 @@ function saveAllQuestions() {
   }, 800);
 }
 
+/* P2：把题面/解题原图上传到 uploads/ 并写回题目 imgs 字段（失败不影响题目保存） */
+function attachImages(q, qImgId, sImgId) {
+  const imgs = inputImgs.filter(x => x.id === qImgId || x.id === sImgId);
+  if (!imgs.length || !q) return;
+  Promise.all(imgs.map(img => API.uploadQuestionImage(img.name, img.dataUrl).catch(() => null)))
+    .then(urls => {
+      const list = urls.filter(Boolean).map(r => r.url);
+      if (!list.length) return;
+      q.imgs = (q.imgs || []).concat(list);
+      return API.updateQuestion(q);
+    })
+    .catch(e => { serverDown = true; console.warn("原图上传失败：", e.message); });
+}
+
 function commitQuestion(id, q) {
-  const item = id ? questions.find(x => x.id === id) : q;
-  if (!id) {
-    if (window.__pending && !questions.includes(window.__pending)) { questions.push(window.__pending); }
-    else questions.push(item);
+  // id 传入时：优先取待确认题（__pending，重复录入确认路径），其次题库中已存在题目
+  let item = q || null;
+  if (id) {
+    item = questions.find(x => x.id === id) || (window.__pending && window.__pending.id === id ? window.__pending : null);
   }
+  if (!item) { toast("保存失败：题目不存在", "error"); return; }
+  if (!questions.includes(item)) questions.push(item);
   window.__pending = null;
-  persistLocal();
+  const cur = inputQueue[inputCursor];
+  apiCall(API.saveQuestion(item));
+  if (cur) attachImages(item, cur.qImgId, cur.sImgId);
   if (inputQueue.length > 1) {
     const cur = inputQueue[inputCursor];
     if (cur) cur.status = "saved";
@@ -1124,7 +1151,7 @@ function renderQuestions() {
       <td>${lvTag(m.lv, m.decay)}</td>
       <td>
         <div class="katex-render" data-tex="${esc(q.titleTex)}"></div>
-        <div class="small muted mt-8">${esc(TREE.flatMap(s => s.children).find(c => c.id === q.subSubject)?.name || "")} · ${fmtDate(q.createdAt)} 录入${dup ? ` · <span class="text-danger">⚠ 疑似重复 ${dup}</span>` : ""}${aged ? " · 超过 7 天未复习" : ""}</div>
+        <div class="small muted mt-8">${esc(TREE.flatMap(s => s.children).find(c => c.id === q.subSubject)?.name || "")} · ${fmtDate(q.createdAt)} 录入${(q.imgs || []).length ? ` · <span title="含 OCR 原图">📷 ${q.imgs.length}</span>` : ""}${dup ? ` · <span class="text-danger">⚠ 疑似重复 ${dup}</span>` : ""}${aged ? " · 超过 7 天未复习" : ""}</div>
       </td>
       <td><div class="flex" style="flex-wrap:wrap;">${kpTxt}</div></td>
       <td>${tagTxt || '<span class="muted">—</span>'}</td>
@@ -1153,7 +1180,7 @@ function toggleMark(id, key, el) {
   const q = questions.find(x => x.id === id);
   q.marks[key] = !q.marks[key];
   if (el) el.classList.toggle("btn-primary", q.marks[key]);
-  persistLocal();
+  apiCall(API.updateQuestion(q));
   toast(q.marks[key] ? "已标记 ★" : "取消标记");
   renderQuestions();
 }
@@ -1221,7 +1248,7 @@ function doBatchClassify() {
     if (uncat) q.kps = [];
   });
   qSel.clear();
-  persistLocal();
+  selected.forEach(q => apiCall(API.updateQuestion(q)));
   closeModal();
   toast(`已归类 ${n} 题`, "success");
   renderQuestions();
@@ -1263,7 +1290,7 @@ function openDetail(id) {
       <div class="stat-card">
         <div class="stat-label">累计复习</div>
         <div class="stat-value" style="font-size:19px;">${logs.length} 次</div>
-        <div class="stat-delta">最近 ${logs.length ? fmtDate(logs[logs.length - 1].at) : "—"}</div>
+        <div class="stat-delta">最近 ${logs.length ? fmtDate(logs[logs.length - 1].at) : "—"} · 下次复习：${nextDueText(q.id)}</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">错因（主因 + 次因）</div>
@@ -1280,6 +1307,14 @@ function openDetail(id) {
       <div class="katex-render" data-tex="${esc(q.solutionTex || "（未填写）")}" data-display="1"></div>
       ${q.note ? `<div class="mt-16"><span class="tag tag-primary">📝 我的笔记</span><div class="small mt-8" style="background:var(--primary-soft);border-radius:10px;padding:10px;">${esc(q.note)}</div></div>` : ""}
     </div>
+
+    ${(q.imgs || []).length ? `
+    <div class="card mt-16">
+      <div class="card-head"><div class="card-title">📷 原图（OCR 来源）</div><span class="tag">${q.imgs.length} 张</span></div>
+      <div class="flex" style="flex-wrap:wrap;gap:10px;">
+        ${q.imgs.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" style="max-width:240px;max-height:180px;border-radius:8px;border:1px solid var(--border);" alt="原图" /></a>`).join("")}
+      </div>
+    </div>` : ""}
 
     <div class="card mt-16">
       <div class="card-head"><div class="card-title">关联知识点（支持多知识点）</div></div>
@@ -1319,7 +1354,7 @@ function openDetail(id) {
 function saveNote(id) {
   const q = questions.find(x => x.id === id);
   q.note = $("#detail-note").value;
-  persistLocal();
+  apiCall(API.updateQuestion(q));
   toast("笔记已保存");
 }
 
@@ -1396,19 +1431,20 @@ function saveEditQuestion() {
   q.chapter = $("#edit-chapter").value;
   q.kps = Array.from(window.__editKps).filter(Boolean);
   q.tags = Array.from(window.__editTags);
-  persistLocal();
+  apiCall(API.updateQuestion(q));
   closeModal();
   toast("题目已更新", "success");
   openDetail(q.id);
 }
 
 function quickRate(id, result) {
-  reviewLogs.push({ id: ++reviewSeq, qid: id, at: Date.now(), result });
+  const log = { id: ++reviewSeq, qid: id, at: Date.now(), result };
+  reviewLogs.push(log);
   const q = questions.find(x => x.id === id);
   if (result === "fail") q.urgent = true;
   if (result === "half") q.calcWeak = true;
   if (result === "stuck") q.needConsolidate = true;
-  persistLocal();
+  apiCall(API.saveReviewLog(log));
   const m = displayMastery(id);
   toast(`已记录自评 → 当前 ${m.lv.icon} ${m.lv.name}`, "success");
   openDetail(id);
@@ -1426,14 +1462,14 @@ function doDelete(id) {
   if ($("#del-confirm").value.trim() !== "删除") { toast("需输入「删除」二字", "error"); return; }
   questions = questions.filter(q => q.id !== id);
   reviewLogs = reviewLogs.filter(l => l.qid !== id);
-  persistLocal();
+  apiCall(API.deleteQuestion(id));
   closeModal();
   toast("已删除");
   go("questions");
 }
 
 /* ---------------- 复习 ---------------- */
-let reviewCfg = { subject: "all", sub: "all", chapter: "", lv: "all", num: 3 };
+let reviewCfg = { subject: "all", sub: "all", chapter: "", lv: "all", tag: "all", num: 3 };
 let reviewQueue = [];
 let reviewIdx = 0;
 let reviewDone = new Set();    // 已自评的题号（队列下标）
@@ -1450,7 +1486,7 @@ function renderReviewConfig() {
     reviewCfg.subject = e.target.value;
     reviewCfg.sub = "all";
     fillRevSub();
-    persistLocal();
+    apiCall(API.saveSettings({ reviewCfg }));
   };
   fillRevSub();
   $$("#rev-lv-filter .chip").forEach(c => c.onclick = () => {
@@ -1458,15 +1494,22 @@ function renderReviewConfig() {
     $$("#rev-lv-filter .chip").forEach(x => x.classList.remove("on"));
     c.classList.add("on");
     $("#rev-deadlock-hint").style.display = reviewCfg.lv === "err" ? "" : "none";
-    persistLocal();
+    apiCall(API.saveSettings({ reviewCfg }));
   });
   $$("#rev-lv-filter .chip").forEach(x => x.classList.toggle("on", x.dataset.v === reviewCfg.lv));
   $("#rev-deadlock-hint").style.display = reviewCfg.lv === "err" ? "" : "none";
+  $$("#rev-tag-filter .chip").forEach(c => c.onclick = () => {
+    reviewCfg.tag = c.dataset.v;
+    $$("#rev-tag-filter .chip").forEach(x => x.classList.remove("on"));
+    c.classList.add("on");
+    apiCall(API.saveSettings({ reviewCfg }));
+  });
+  $$("#rev-tag-filter .chip").forEach(x => x.classList.toggle("on", x.dataset.v === (reviewCfg.tag || "all")));
   $$("#rev-num .chip").forEach(c => c.onclick = () => {
     reviewCfg.num = Number(c.dataset.v);
     $$("#rev-num .chip").forEach(x => x.classList.remove("on"));
     c.classList.add("on");
-    persistLocal();
+    apiCall(API.saveSettings({ reviewCfg }));
   });
   $$("#rev-num .chip").forEach(x => x.classList.toggle("on", x.dataset.v === String(reviewCfg.num)));
   $("#review-config").style.display = "";
@@ -1480,7 +1523,7 @@ function fillRevSub() {
   $("#rev-subsub").innerHTML = `<option value="all">全部子科目</option>` +
     (subj ? subj.children.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("") : "");
   $("#rev-subsub").value = reviewCfg.sub || "all";
-  $("#rev-subsub").onchange = e => { reviewCfg.sub = e.target.value; fillRevChapter(); persistLocal(); };
+  $("#rev-subsub").onchange = e => { reviewCfg.sub = e.target.value; fillRevChapter(); apiCall(API.saveSettings({ reviewCfg })); };
   fillRevChapter();
 }
 
@@ -1576,6 +1619,7 @@ function startReviewWith(n, presetList) {
     if (reviewCfg.subject && reviewCfg.subject !== "all" && q.subject !== reviewCfg.subject) return false;
     if (reviewCfg.sub && reviewCfg.sub !== "all" && q.subSubject !== reviewCfg.sub) return false;
     if (reviewCfg.chapter && q.chapter !== reviewCfg.chapter) return false;
+    if (reviewCfg.tag && reviewCfg.tag !== "all" && !q.tags.includes(reviewCfg.tag)) return false; // P3：错因专项
     const lv = displayMastery(q.id).lv.key;
     if (reviewCfg.lv === "err" && !ERR_TRACK.includes(lv)) return false;
     if (reviewCfg.lv === "worst" && lv !== "darkred" && lv !== "red") return false;
@@ -1584,24 +1628,29 @@ function startReviewWith(n, presetList) {
   });
   if (!pool.length) { toast("没有符合条件的题目", "error"); return; }
 
-  // 分层优先：被抽次数 0 / 1 / ≥2
-  const pickCount = q => logsOf(q.id).length;
-  const layers = [[], [], []];
-  pool.forEach(q => layers[Math.min(pickCount(q), 2)].push(q));
-  const picked = [];
+  // P3 到期优先：先抽间隔重复已到期的题，不足再用其余候选补足
   const need = Math.min(n, pool.length);
-  for (const layer of layers) {
-    if (picked.length >= need) break;
-    const candidates = layer.slice();
-    while (candidates.length && picked.length < need) {
-      const totalW = candidates.reduce((s, q) => s + weightOf(q), 0);
-      let r = Math.random() * totalW;
-      let chosen = candidates[0];
-      for (const q of candidates) { r -= weightOf(q); if (r <= 0) { chosen = q; break; } }
-      picked.push(chosen);
-      candidates.splice(candidates.indexOf(chosen), 1);
+  const picked = [];
+  const pickLayered = (src) => {
+    if (!src.length) return;
+    const pickCount = q => logsOf(q.id).length;
+    const layers = [[], [], []];
+    src.forEach(q => layers[Math.min(pickCount(q), 2)].push(q));
+    for (const layer of layers) {
+      if (picked.length >= need) break;
+      const candidates = layer.slice();
+      while (candidates.length && picked.length < need) {
+        const totalW = candidates.reduce((s, q) => s + weightOf(q), 0);
+        let r = Math.random() * totalW;
+        let chosen = candidates[0];
+        for (const q of candidates) { r -= weightOf(q); if (r <= 0) { chosen = q; break; } }
+        picked.push(chosen);
+        candidates.splice(candidates.indexOf(chosen), 1);
+      }
     }
-  }
+  };
+  pickLayered(pool.filter(q => isDue(q.id)));
+  pickLayered(pool.filter(q => !isDue(q.id)));
   reviewQueue = picked;
   reviewIdx = 0;
   reviewResults = [];
@@ -1630,6 +1679,21 @@ function showReviewCard() {
   renderRevNav();
   $("#rev-question").innerHTML = "";
   renderTex($("#rev-question"), q.titleTex, true);
+  // P3：回忆错因（录入时填写的 wrongAnswer，先回忆再看答案）
+  const wrongWrap = $("#rev-wrong-wrap"), wrongBox = $("#rev-wrong");
+  if (wrongWrap && wrongBox) {
+    wrongBox.textContent = q.wrongAnswer || "";
+    wrongWrap.style.display = q.wrongAnswer ? "" : "none";
+    wrongBox.style.display = "none";
+  }
+  // P2：原图查看（OCR 来源图，点击可放大/新窗口）
+  const imgs = q.imgs || [];
+  const wrap = $("#rev-imgs-wrap"), box = $("#rev-imgs");
+  if (wrap && box) {
+    box.innerHTML = imgs.map(u => `<img src="${esc(u)}" style="max-width:200px;max-height:150px;border-radius:8px;border:1px solid var(--border);cursor:zoom-in;" onclick="window.open('${esc(u)}','_blank')" alt="原图" />`).join("");
+    wrap.style.display = imgs.length ? "" : "none";
+    box.style.display = "none";
+  }
   $("#rev-answer").style.display = "none";
   $("#rev-show-ans").style.display = "";
   $("#rev-rate").style.display = "none";
@@ -1685,14 +1749,28 @@ function revealAnswer() {
   $("#rev-rate-hint").textContent = "自评四档：✅ 完全做对=正常升级 · 🟡 思路对细节错=升半级/不升 · 🟠 卡住=不升级 · ❌ 不会=降级重置";
 }
 
+function toggleRevImgs() {
+  const box = $("#rev-imgs");
+  if (!box) return;
+  box.style.display = box.style.display === "none" ? "" : "none";
+}
+
+function toggleRevWrong() {
+  const box = $("#rev-wrong");
+  if (!box) return;
+  box.style.display = box.style.display === "none" ? "" : "none";
+}
+
 function selfRate(result) {
   const q = window.__curQ;
-  reviewLogs.push({ id: ++reviewSeq, qid: q.id, at: Date.now(), result });
+  const log = { id: ++reviewSeq, qid: q.id, at: Date.now(), result };
+  reviewLogs.push(log);
   if (result === "fail") q.urgent = true;
   if (result === "half") { q.calcWeak = true; q.urgent = false; }
   if (result === "stuck") q.needConsolidate = true;
   if (result === "ok") q.urgent = false;
-  persistLocal();
+  apiCall(API.saveReviewLog(log));
+  apiCall(API.updateQuestion(q));
   reviewResults.push({ q, result, before: window.__curM });
   const m = displayMastery(q.id);
   const msgs = {
@@ -1821,7 +1899,7 @@ function renderStats() {
 let remindOn = true;
 function selectDefaultNum(v) {
   reviewCfg.num = Number(v);
-  persistLocal();
+  apiCall(API.saveSettings({ reviewCfg }));
   $$("#rev-num-default .chip").forEach(x => x.classList.toggle("on", x.dataset.v === String(v)));
   toast(`默认抽题数量已设为 ${v} 题`, "success");
 }
@@ -1831,7 +1909,7 @@ function toggleRemind() {
   el.textContent = remindOn ? "已开启" : "已关闭";
   el.style.background = remindOn ? "var(--success-light)" : "#F1F3F7";
   el.style.color = remindOn ? "var(--success)" : "var(--text-3)";
-  persistLocal();
+  apiCall(API.saveSettings({ remindOn }));
   toast(remindOn ? "打开应用时提醒已开启" : "提醒已关闭");
 }
 function demoNotify() {
@@ -1978,7 +2056,7 @@ function doAddNode(parentId) {
     const ss = TREE.flatMap(s => s.children).find(c => c.id === parentId);
     if (ss) ss.children.push({ id: "ch-" + Date.now(), name, children: [] });
   }
-  persistLocal();
+  apiCall(API.saveTree(TREE));
   closeModal();
   renderSettings();
   toast("节点已添加（支持完全自定义）", "success");
@@ -1996,7 +2074,7 @@ function doAddSubject() {
   if (!name) return;
   if (TREE.some(s => s.name === name)) { toast("该科目已存在", "error"); return; }
   TREE.push({ id: "subj-" + Date.now(), name, children: [] });
-  persistLocal(); closeModal(); renderSettings();
+  apiCall(API.saveTree(TREE)); closeModal(); renderSettings();
   toast("科目已添加", "success");
 }
 
@@ -2013,7 +2091,7 @@ function doAddKp(chapterId) {
   if (!ch || !name) return;
   if (ch.children.includes(name)) { toast("该知识点已存在", "error"); return; }
   ch.children.push(name);
-  persistLocal(); closeModal(); renderSettings();
+  apiCall(API.saveTree(TREE)); closeModal(); renderSettings();
   toast("知识点已添加", "success");
 }
 
@@ -2032,8 +2110,9 @@ function doDelKp(chapterId, name) {
   const ch = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === chapterId);
   if (!ch) return;
   ch.children = ch.children.filter(k => k !== name);
-  questions.forEach(q => { if (q.kps.includes(name)) q.kps = []; });
-  persistLocal();
+  const affected = questions.filter(q => q.kps.includes(name));
+  affected.forEach(q => { q.kps = []; apiCall(API.updateQuestion(q)); });
+  apiCall(API.saveTree(TREE));
   renderSettings();
   toast("知识点已删除，相关题目归入未分类", "success");
 }
@@ -2060,7 +2139,7 @@ function doRenameNode() {
   if (!target) target = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === id);
   if (!target) return;
   target.name = name;
-  persistLocal(); closeModal(); renderSettings();
+  apiCall(API.saveTree(TREE)); closeModal(); renderSettings();
   toast("已重命名", "success");
 }
 
@@ -2095,16 +2174,17 @@ function delNode(id) {
 function doDelSubject(id) {
   const i = TREE.findIndex(s => s.id === id);
   if (i >= 0) TREE.splice(i, 1);
-  persistLocal(); renderSettings(); toast("科目已删除", "success");
+  apiCall(API.saveTree(TREE)); renderSettings(); toast("科目已删除", "success");
 }
 function doDelSubSubject(id) {
   TREE.forEach(s => { s.children = s.children.filter(c => c.id !== id); });
-  persistLocal(); renderSettings(); toast("子科目已删除", "success");
+  apiCall(API.saveTree(TREE)); renderSettings(); toast("子科目已删除", "success");
 }
 function doDelChapterById(id) {
   TREE.forEach(s => s.children.forEach(c => { c.children = c.children.filter(ch => ch.id !== id); }));
-  questions.forEach(q => { if (q.chapter === id) q.chapter = ""; });
-  persistLocal(); renderSettings(); toast("章节已删除，相关题目归入未分类", "success");
+  const affected = questions.filter(q => q.chapter === id);
+  affected.forEach(q => { q.chapter = ""; apiCall(API.updateQuestion(q)); });
+  apiCall(API.saveTree(TREE)); renderSettings(); toast("章节已删除，相关题目归入未分类", "success");
 }
 function delChapter(ssId, name) {
   const ss = TREE.flatMap(s => s.children).find(c => c.id === ssId);
@@ -2121,8 +2201,9 @@ function delChapter(ssId, name) {
 function doDelChapter(ssId, name) {
   const ss = TREE.flatMap(s => s.children).find(c => c.id === ssId);
   ss.children = ss.children.filter(c => c.name !== name);
-  questions.forEach(q => { if (q.chapter && !TREE.flatMap(s => s.children).some(c => c.children.some(ch => ch.id === q.chapter))) q.chapter = ""; });
-  persistLocal();
+  const affected = questions.filter(q => q.chapter && !TREE.flatMap(s => s.children).some(c => c.children.some(ch => ch.id === q.chapter)));
+  affected.forEach(q => { q.chapter = ""; apiCall(API.updateQuestion(q)); });
+  apiCall(API.saveTree(TREE));
   closeModal();
   renderSettings();
   toast("章节已删除，相关题目归入未分类", "success");
@@ -2152,6 +2233,25 @@ function exportJSON() {
   a.download = `mistake-book-backup-${fmtDate(Date.now())}.json`;
   a.click();
   toast("JSON 已导出（含题库、个人数据与复习记录）", "success");
+}
+
+/* P2：下载整库备份（VACUUM INTO 一致性快照，含账号与全部数据） */
+async function backupDb() {
+  try {
+    const buf = await API.backupDb();
+    const blob = new Blob([buf], { type: "application/octet-stream" });
+    const dlUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = dlUrl;
+    a.download = `mistake-book-backup-${fmtDate(Date.now())}.db`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(dlUrl), 8000);
+    toast("数据库备份已下载（含全部数据与账号）", "success");
+  } catch (e) {
+    toast(e.message || "备份失败", "error");
+  }
 }
 
 /* ---------------- 导入导出（真实实现） ---------------- */
@@ -2652,14 +2752,15 @@ function addTodo() {
   if (!title) { toast("请输入待办内容", "error"); return; }
   const due = parsed.due || (dueSel === "today" ? dayKey() : dueSel === "tomorrow" ? dayKey(1) : "");
   const prioSel = Number($("#todo-priority").value) || 0;
-  personal.todos.unshift({
+  const t = {
     id: nextTodoId(), title, done: false,
     due, priority: parsed.priority || prioSel,
     subtasks: [], tags: parsed.tags, note: "", remind: "",
     createdAt: Date.now()
-  });
+  };
+  personal.todos.unshift(t);
   input.value = "";
-  persistLocal();
+  apiCall(API.saveTodo(t));
   renderTodos();
   toast("已添加待办", "success");
 }
@@ -2668,7 +2769,7 @@ function toggleTodo(id) {
   const t = personal.todos.find(x => x.id === id);
   if (!t) return;
   t.done = !t.done;
-  persistLocal();
+  apiCall(API.updateTodo(t));
   if (currentView === "todos") renderTodos();
   if (currentView === "dashboard") renderOverview();
   if (currentView === "goals") renderGoals();
@@ -2676,10 +2777,9 @@ function toggleTodo(id) {
 
 function delTodo(id) {
   personal.todos = personal.todos.filter(x => x.id !== id);
-  personal.goals.forEach(g => {
-    if (g.linkedTodoIds) g.linkedTodoIds = g.linkedTodoIds.filter(x => x !== id);
-  });
-  persistLocal();
+  const linked = personal.goals.filter(g => g.linkedTodoIds && g.linkedTodoIds.includes(id));
+  linked.forEach(g => { g.linkedTodoIds = g.linkedTodoIds.filter(x => x !== id); apiCall(API.updateGoal(g)); });
+  apiCall(API.deleteTodo(id));
   renderTodos();
   toast("已删除待办");
 }
@@ -2756,7 +2856,7 @@ function saveTodoEdit(id) {
   t.remind = $("#et-remind").value || "";
   t.note = $("#et-note").value.trim();
   closeModal();
-  persistLocal();
+  apiCall(API.updateTodo(t));
   renderTodos();
   toast("已保存待办", "success");
 }
@@ -2837,14 +2937,15 @@ function renderGoals() {
 function addGoal() {
   const title = $("#goal-input").value.trim();
   if (!title) { toast("请输入目标名称", "error"); return; }
-  personal.goals.push({
+  const g = {
     id: nextTodoId(), title, category: $("#goal-cat").value, progress: 0,
     milestone: "", targetDate: $("#goal-date").value || "", status: "active",
     linkedTodoIds: [], milestones: [], note: "", createdAt: Date.now()
-  });
+  };
+  personal.goals.push(g);
   $("#goal-input").value = "";
   $("#goal-date").value = "";
-  persistLocal();
+  apiCall(API.saveGoal(g));
   renderGoals();
   toast("已添加目标", "success");
 }
@@ -2857,7 +2958,7 @@ function goalProgress(id, delta) {
     return;
   }
   g.progress = Math.max(0, Math.min(100, g.progress + delta));
-  persistLocal();
+  apiCall(API.updateGoal(g));
   renderGoals();
 }
 
@@ -2865,7 +2966,7 @@ function markGoalDone(id) {
   const g = personal.goals.find(x => x.id === id);
   if (!g) return;
   g.status = g.status === "done" ? "active" : "done";
-  persistLocal();
+  apiCall(API.updateGoal(g));
   renderGoals();
   toast(g.status === "done" ? "目标已完成 🎉" : "已恢复进行中");
 }
@@ -2876,7 +2977,7 @@ function toggleGoalMilestone(goalId, msId) {
   const m = (g.milestones || []).find(x => x.id === msId);
   if (!m) return;
   m.done = !m.done;
-  persistLocal();
+  apiCall(API.updateGoal(g));
   renderGoals();
 }
 
@@ -2970,7 +3071,7 @@ function saveGoalEdit(id) {
   g.milestone = $("#eg-milestone").value.trim();
   g.targetDate = $("#eg-date").value || "";
   closeModal();
-  persistLocal();
+  apiCall(API.updateGoal(g));
   renderGoals();
   toast("已保存目标", "success");
 }
@@ -2985,7 +3086,7 @@ function delGoal(id) {
 
 function doDelGoal(id) {
   personal.goals = personal.goals.filter(x => x.id !== id);
-  persistLocal();
+  apiCall(API.deleteGoal(id));
   renderGoals();
   toast("已删除目标");
 }
@@ -3161,7 +3262,7 @@ function saveDailyReview() {
   rv.mood = dailyMood;
   rv.stats = todayStats();
   rv.updatedAt = Date.now();
-  persistLocal();
+  apiCall(API.saveDailyReview(rv));
   renderDaily();
   toast("今日复盘已保存", "success");
 }
@@ -3224,8 +3325,9 @@ function addInboxItem() {
     id: nextTodoId(), text: clean || text,
     tags, status: "open", createdAt: Date.now()
   });
+  const it = personal.inbox[0];
   input.value = "";
-  persistLocal();
+  apiCall(API.saveInboxItem(it));
   renderInbox();
   toast("已收入收件箱", "success");
 }
@@ -3234,7 +3336,7 @@ function markInboxDone(id, label) {
   const it = personal.inbox.find(x => x.id === id);
   if (!it) return;
   it.status = "done";
-  persistLocal();
+  apiCall(API.updateInboxItem(it));
   renderInbox();
   toast(`已转${label}并归档`, "success");
 }
@@ -3264,12 +3366,14 @@ function doInboxToTodo(id) {
   const it = personal.inbox.find(x => x.id === id);
   if (!it) return;
   const due = $("#it-due").value;
-  personal.todos.unshift({
+  const t = {
     id: nextTodoId(), title: $("#it-title").value.trim() || it.text, done: false,
     due: due === "today" ? dayKey() : due === "tomorrow" ? dayKey(1) : "",
     priority: Number($("#it-priority").value) || 0,
     subtasks: [], tags: it.tags || [], note: "", remind: "", createdAt: Date.now()
-  });
+  };
+  personal.todos.unshift(t);
+  apiCall(API.saveTodo(t));
   closeModal();
   markInboxDone(id, "待办");
 }
@@ -3289,11 +3393,13 @@ function inboxToGoal(id) {
 function doInboxToGoal(id) {
   const it = personal.inbox.find(x => x.id === id);
   if (!it) return;
-  personal.goals.push({
+  const g = {
     id: nextTodoId(), title: $("#ig-title").value.trim() || it.text,
     category: $("#ig-cat").value, progress: 0, milestone: "", targetDate: "",
     status: "active", linkedTodoIds: [], milestones: [], note: "", createdAt: Date.now()
-  });
+  };
+  personal.goals.push(g);
+  apiCall(API.saveGoal(g));
   closeModal();
   markInboxDone(id, "目标");
 }
@@ -3308,6 +3414,8 @@ function inboxToReview(id) {
     personal.reviews.unshift(rv);
   }
   rv.done = rv.done ? rv.done + "\n" + it.text : it.text;
+  rv.updatedAt = Date.now();
+  apiCall(API.saveDailyReview(rv));
   markInboxDone(id, "复盘");
 }
 
@@ -3315,7 +3423,7 @@ function archiveInboxItem(id) {
   const it = personal.inbox.find(x => x.id === id);
   if (!it) return;
   it.status = "archived";
-  persistLocal();
+  apiCall(API.updateInboxItem(it));
   renderInbox();
   toast("已归档");
 }
@@ -3324,13 +3432,13 @@ function reopenInboxItem(id) {
   const it = personal.inbox.find(x => x.id === id);
   if (!it) return;
   it.status = "open";
-  persistLocal();
+  apiCall(API.updateInboxItem(it));
   renderInbox();
 }
 
 function delInboxItem(id) {
   personal.inbox = personal.inbox.filter(x => x.id !== id);
-  persistLocal();
+  apiCall(API.deleteInboxItem(id));
   renderInbox();
   toast("已删除");
 }
@@ -3642,9 +3750,10 @@ function addBookmark() {
   if (!title) { toast("请填写标题", "error"); return; }
   if ((kind === "link" || kind === "pdf") && !url) { toast("请填写链接或先上传文件", "error"); return; }
   const tags = String($("#bm-tags").value || "").split(/[,，\s#]+/).map(x => x.trim()).filter(Boolean);
-  personal.bookmarks.unshift({ id: nextTodoId(), title, kind, url, note, tags, createdAt: Date.now() });
+  const b = { id: nextTodoId(), title, kind, url, note, tags, createdAt: Date.now() };
+  personal.bookmarks.unshift(b);
   $("#bm-title").value = ""; $("#bm-url").value = ""; $("#bm-note").value = ""; $("#bm-tags").value = "";
-  persistLocal();
+  apiCall(API.saveBookmark(b));
   renderBookmarks();
   toast("已收藏", "success");
 }
@@ -3659,7 +3768,7 @@ function delBookmark(id) {
 
 function doDelBookmark(id) {
   personal.bookmarks = personal.bookmarks.filter(x => x.id !== id);
-  persistLocal();
+  apiCall(API.deleteBookmark(id));
   renderBookmarks();
   toast("已删除收藏");
 }
@@ -3786,7 +3895,7 @@ function studyTick() {
   study.perDay[today] = (study.perDay[today] || 0) + 1;
   const m = Math.floor(study.seconds / 60);
   const d = $("#stats-time"); if (d) d.textContent = m;
-  if (study.seconds % 60 === 0) persistLocal(); // 每分钟落盘一次
+  if (study.seconds % 60 === 0) apiCall(API.saveStudy(study.seconds, study.perDay, study.blurPrompt)); // 每分钟增量落盘一次
 }
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) { study.lastBlur = Date.now(); }
@@ -3802,7 +3911,14 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-/* ---------------- 本地持久化（Phase A：本机 localStorage） ---------------- */
+/* ---------------- 增量写辅助（P1：单对象变更落库，fire-and-forget） ---------------- */
+function apiCall(p) {
+  if (!p || !p.catch) return;
+  p.catch(e => { serverDown = true; console.warn("保存到本地服务失败：", e.message); });
+  if (window.__mbBc) window.__mbBc.postMessage(window.__mbTabId); // 通知其他标签页同步
+}
+
+/* ---------------- 本地持久化（批量场景：导入 / 覆盖 / 重置后的整库快照） ---------------- */
 function persistLocal() {
   if (!window.API) return;
   const data = {
@@ -3826,6 +3942,7 @@ function persistLocal() {
     serverDown = true;
     console.warn("保存到本地服务失败：", e.message);
   });
+  if (window.__mbBc) window.__mbBc.postMessage(window.__mbTabId);
 }
 
 async function loadLocal() {
@@ -3852,7 +3969,7 @@ async function loadLocal() {
     study.perDay = d.study.perDay || {};
   }
   if (typeof d.remindOn === "boolean") remindOn = d.remindOn;
-  if (d.reviewCfg) reviewCfg = { subject: "all", sub: "all", chapter: "", lv: "all", num: 3, ...d.reviewCfg };
+  if (d.reviewCfg) reviewCfg = { subject: "all", sub: "all", chapter: "", lv: "all", tag: "all", num: 3, ...d.reviewCfg };
   if (d.personal) {
     personal.todos = Array.isArray(d.personal.todos) ? d.personal.todos : [];
     personal.goals = Array.isArray(d.personal.goals) ? d.personal.goals : [];
@@ -3875,20 +3992,16 @@ function resetDemoData() {
      <button class="btn btn-danger" onclick="closeModal();doResetDemo()">确认重置</button>`
   );
 }
-function doResetDemo() {
-  reviewLogs = [];
-  study.seconds = 0;
-  study.perDay = {};
-  personal.todos = [];
-  personal.goals = [];
-  personal.reviews = [];
-  personal.inbox = [];
-  personal.bookmarks = [];
-  reviewCfg = { subject: "all", sub: "all", chapter: "", lv: "all", num: 3 };
-  seed();
-  persistLocal();
-  toast("已重置为演示数据", "success");
-  go("dashboard");
+async function doResetDemo() {
+  try {
+    // 服务端清空并重播种子数据（单一数据源 = seed-data.js）
+    await API.resetAll();
+    await loadLocal();
+    toast("已重置为演示数据", "success");
+    go("dashboard");
+  } catch (e) {
+    toast("重置失败：" + (e.message || "本地服务未连接"), "error");
+  }
 }
 
 /* ---------------- 初始化 ---------------- */
@@ -3899,11 +4012,23 @@ function doResetDemo() {
   if (user) {
     window.__currentUser = user;
     const ok = await loadLocal();
-    if (!ok) { seed(); persistLocal(); }
+    if (!ok) toast("数据加载失败：本地服务未连接，请检查服务", "error");
     enterApp();
   } else {
     $("#view-app").style.display = "none";
     $("#view-login").style.display = "grid";
+  }
+  // 跨标签页同步：其他标签页写库后，本页静默重载数据（录入中不打断）
+  if (typeof BroadcastChannel !== "undefined") {
+    window.__mbTabId = Math.random().toString(36).slice(2);
+    const bc = new BroadcastChannel("mb-data");
+    window.__mbBc = bc;
+    bc.onmessage = async (ev) => {
+      if (ev.data === window.__mbTabId || document.hidden) return;
+      if (currentView === "input") return;
+      const synced = await loadLocal();
+      if (synced && currentView) { go(currentView); toast("已同步其他标签页的更改", "success"); }
+    };
   }
   setInterval(studyTick, 1000);
   $$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => {
@@ -4022,6 +4147,7 @@ window.delNode = delNode;
 window.delChapter = delChapter;
 window.doDelChapter = doDelChapter;
 window.exportJSON = exportJSON;
+window.backupDb = backupDb;
 window.handleImportFile = handleImportFile;
 window.doMergeImport = doMergeImport;
 window.showOverwriteConfirm = showOverwriteConfirm;

@@ -1,0 +1,23 @@
+{
+  "name": "mistake-book",
+  "version": "1.14.0",
+  "private": true,
+  "description": "个人工作台：错题学习（拍照录入 → OCR → 分类 → 随机复习 → 掌握度评估 → PDF 试卷）+ 个人管理（待办/目标/收件箱/日历/复盘/资讯/收藏）",
+  "main": "server.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "check:version": "node scripts/check-version.mjs",
+    "test": "node smoke-test.mjs && node layout-check.mjs",
+    "test:all": "node verify-review-algo.mjs && node verify-scheduler.mjs && node smoke-test.mjs && node layout-check.mjs && node feature-check.mjs && node verify-personal.mjs && node verify-register.mjs"
+  },
+  "keywords": [
+    "mistake-book",
+    "错题本",
+    "study",
+    "spaced-repetition"
+  ],
+  "license": "MIT"
+}

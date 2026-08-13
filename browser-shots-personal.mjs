@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+const ROOT = fileURLToPath(import.meta.url).replace(/[\\/][^\\/]*$/, "");
 
 const BIN = {
   chrome: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -13,13 +15,13 @@ const EXE = BIN[which];
 const PORT = 9394;
 const CDP_PORT = PORT + 100;
 const URL = `http://127.0.0.1:${PORT}/index.html?auto=1&view=dashboard`;
-const OUT = "C:/Users/32949/Desktop/assets/_shots/";
+const OUT = ROOT + "/_shots/";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const testDir = mkdtempSync(join(tmpdir(), "mb-personal-shot-"));
 const dbFile = join(testDir, "test.db");
 const server = spawn("node", ["server.js"], {
-  cwd: "C:/Users/32949/Desktop/assets",
+  cwd: ROOT,
   env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile, MINERU_DISABLE: "1" },
   stdio: "ignore"
 });

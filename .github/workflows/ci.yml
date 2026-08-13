@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: 版本号一致性校验
+        run: node scripts/check-version.mjs
+
+      - name: 冒烟测试（单题/批量录入/OCR/持久化）
+        run: node smoke-test.mjs
+
+      - name: 布局检查（桌面/移动）
+        run: node layout-check.mjs
+
+      - name: 注册登录流程
+        run: node verify-register.mjs
+
+      - name: 抽题算法覆盖性验证
+        run: node verify-review-algo.mjs
+
+      - name: 间隔重复调度验证
+        run: node verify-scheduler.mjs

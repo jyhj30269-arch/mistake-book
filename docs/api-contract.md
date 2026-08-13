@@ -1,6 +1,6 @@
 # 考研错题本 · 前端 API 接口契约
 
-> 版本：v1.13.3 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
+> 版本：v1.14.0 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
 >
 > 本文件与 `../api.js` 一一对应。后端接入时按此契约实现同名方法即可，前端业务代码无需改动。
 
@@ -35,6 +35,18 @@
 | `saveQuestion(q)` | 题目对象 | `{ ok, id }` | 新增题目 |
 | `deleteQuestion(id)` | id | `{ ok }` | 删除题目（复习记录置空或级联，按 §4.3 规范） |
 | `saveReviewLog(log)` | 复习记录对象 | `{ ok }` | 追加一条自评记录（实时计算掌握度） |
+| `updateQuestion(q)` | 题目对象 | `{ ok }` | 更新题目（编辑 / 标记 / 归类 / 原图回写） |
+| `saveSettings(patch)` | `{ remindOn?, reviewCfg? }` | `{ ok }` | 通用设置增量写 |
+| `saveTree(tree)` | 知识点树 | `{ ok }` | 整树替换（表小，代价低） |
+| `saveTodo(t)` / `updateTodo(t)` / `deleteTodo(id)` | 待办对象 / id | `{ ok }` | 待办增量 CRUD |
+| `saveGoal(g)` / `updateGoal(g)` / `deleteGoal(id)` | 目标对象 / id | `{ ok }` | 目标增量 CRUD |
+| `saveDailyReview(rv)` | 复盘对象（按 day upsert） | `{ ok }` | 当日复盘 upsert |
+| `saveInboxItem(it)` / `updateInboxItem(it)` / `deleteInboxItem(id)` | 收件箱对象 / id | `{ ok }` | 收件箱增量 CRUD |
+| `saveBookmark(b)` / `deleteBookmark(id)` | 收藏对象 / id | `{ ok }` | 收藏增量 CRUD（删除时连带清理 uploads/ 文件） |
+| `uploadQuestionImage(name, dataUrl)` | 文件名 + dataURL | `{ ok, url }` | 题目原图上传（存 uploads/，写回 question.imgs） |
+| `backupDb()` | 无 | ArrayBuffer | 整库一致性快照（VACUUM INTO）下载 |
+| `saveStudy(seconds, perDay, blurPrompt)` | 秒数 + 按天分布 + 模糊提示 | `{ ok }` | 学习时长与按天分布 upsert |
+| `resetAll()` | 无 | `{ ok }` | 服务端清空全部数据并重播种子（seed-data.js） |
 | `saveStudy(seconds)` | 秒数 | `{ ok }` | 学习时长落库 |
 | `resetAll()` | 无 | 无 | 清空本机数据（仅本地测试用） |
 
