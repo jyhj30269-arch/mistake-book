@@ -1,7 +1,8 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.16.0）
+   个人工作台 · 本地服务（v1.17.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.17.0：前端业务逻辑拆分为 js/01-core ~ js/12-boot（经典 script 顺序加载）。
    v1.16.0：知识点树自动升级为完整章节体系（数学 18 章 / 408 四科 25 章）。
    v1.15.0：自建复习集 CRUD（/api/review-sets）；备份恢复
    （/api/restore，校验 SQLite 头 + 恢复前自动备份当前库）；
@@ -1210,7 +1211,7 @@ server.listen(PORT, "127.0.0.1", () => {
   const uCount = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
   console.log("==============================================");
   console.log(`个人工作台本地服务已启动：http://127.0.0.1:${PORT}`);
-  console.log(`版本：v1.16.0 · Node ${process.versions.node}`);
+  console.log(`版本：v1.17.0 · Node ${process.versions.node}`);
   console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
   console.log(`备份：backups/ 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
   console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);

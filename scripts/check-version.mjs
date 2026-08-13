@@ -12,8 +12,8 @@ if (!/^\d+\.\d+\.\d+$/.test(version)) {
 }
 
 const checks = [
-  ["app.js 头注释", "app.js", /业务逻辑 v(\d+\.\d+\.\d+)/],
-  ["app.js APP_VERSION", "app.js", /const APP_VERSION = "(\d+\.\d+\.\d+)"/],
+  ["js/01-core.js 头注释", "js/01-core.js", /个人工作台 v(\d+\.\d+\.\d+) · 01-core\.js/],
+  ["js/01-core.js APP_VERSION", "js/01-core.js", /const APP_VERSION = "(\d+\.\d+\.\d+)"/],
   ["api.js 头注释", "api.js", /接口契约 v(\d+\.\d+\.\d+)/],
   ["index.html 头注释", "index.html", /个人工作台 v(\d+\.\d+\.\d+)/],
   ["server.js 头注释", "server.js", /本地服务（v(\d+\.\d+\.\d+)/],

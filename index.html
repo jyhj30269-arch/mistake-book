@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.16.0 -->
+  <!-- 个人工作台 v1.17.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -551,7 +551,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.16.0</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.17.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
@@ -947,6 +947,18 @@
   <script src="vendor/katex/katex.min.js"></script>
   <script src="vendor/echarts.min.js"></script>
   <script src="api.js"></script>
-  <script src="app.js"></script>
+  <!-- 业务逻辑（v1.17.0 起由 app.js 拆分为按域模块，经典 script 顺序加载） -->
+  <script src="js/01-core.js"></script>
+  <script src="js/02-state.js"></script>
+  <script src="js/03-mastery.js"></script>
+  <script src="js/04-auth-nav.js"></script>
+  <script src="js/05-dashboard.js"></script>
+  <script src="js/06-input.js"></script>
+  <script src="js/07-questions.js"></script>
+  <script src="js/08-review.js"></script>
+  <script src="js/09-personal.js"></script>
+  <script src="js/10-extras.js"></script>
+  <script src="js/11-settings.js"></script>
+  <script src="js/12-boot.js"></script>
 </body>
 </html>
