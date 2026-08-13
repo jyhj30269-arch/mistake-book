@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.18.0 · 04-auth-nav.js（由 app.js 拆分）
+   个人工作台 v1.18.1 · 04-auth-nav.js（由 app.js 拆分）
    导航 / 登录注册 / 主题 / 移动抽屉
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -76,6 +76,7 @@ async function doLogin() {
 function enterApp() {
   $("#view-login").style.display = "none";
   $("#view-app").style.display = "block";
+  applyModuleVisibility(); // 登录后按模块开关刷新导航（doLogin 路径同样生效）
   go("dashboard");
   setTimeout(remindCheckToday, 1200);
 }

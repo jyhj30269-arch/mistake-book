@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.18.0 · 11-settings.js（由 app.js 拆分）
+   个人工作台 v1.18.1 · 11-settings.js（由 app.js 拆分）
    设置（提醒/主题开关/OCR 配置/知识点管理/导出导入 CSV/备份恢复）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -350,6 +350,9 @@ function exportJSON() {
     theme,
     remindDate,
     reviewResume,
+    examDate,
+    moduleOn,
+    habits,
     reviewCfg: { ...reviewCfg },
     personal: {
       todos: personal.todos,
@@ -652,6 +655,16 @@ function doOverwrite() {
   }
   if (typeof data.remindOn === "boolean") remindOn = data.remindOn;
   if (data.reviewCfg) reviewCfg = { subject: "all", sub: "all", chapter: "", lv: "all", num: 3, ...data.reviewCfg };
+  // 覆盖导入：完整替换扩展状态（v1.15+ 字段），缺省回退默认值
+  if (data.theme === "dark" || data.theme === "light") theme = data.theme; else theme = "light";
+  if (typeof data.remindDate === "string") remindDate = data.remindDate; else remindDate = "";
+  if (data.reviewResume && typeof data.reviewResume === "object") reviewResume = data.reviewResume; else reviewResume = null;
+  if (typeof data.examDate === "string") examDate = data.examDate; else examDate = "";
+  if (data.moduleOn && typeof data.moduleOn === "object") moduleOn = data.moduleOn; else moduleOn = {};
+  reviewSets = Array.isArray(data.reviewSets) ? data.reviewSets : [];
+  habits = Array.isArray(data.habits) ? data.habits : [];
+  applyTheme();
+  applyModuleVisibility();
   qidSeq = Math.max(100, ...questions.map(q => q.id || 0));
   window.__importData = null;
   persistLocal();

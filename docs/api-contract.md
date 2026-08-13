@@ -1,6 +1,6 @@
 # 考研错题本 · 前端 API 接口契约
 
-> 版本：v1.18.0 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
+> 版本：v1.18.1 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
 >
 > 本文件与 `../api.js` 一一对应。后端接入时按此契约实现同名方法即可，前端业务代码无需改动。
 
@@ -51,7 +51,7 @@
 | `listHabits()` / `saveHabit(h)` / `updateHabit(h)` / `deleteHabit(id)` | 习惯对象 / id | `{ ok, data }` | 每日习惯打卡 CRUD（`{ id, name, doneDays: [], createdAt }`） |
 | `restoreDb(name, dataUrl)` | 备份 .db 文件 | `{ ok }` | 从备份恢复（服务端校验 SQLite 头；恢复前自动把当前库备份到 backups/） |
 
-> v1.18.0 说明：`saveSettings` 新增 `examDate`（YYYY-MM-DD）、`moduleOn`（`{ hot?, bookmarks? }`）；`GET /api/db` 返回 `examDate` / `moduleOn` / `habits`；`POST /api/bookmarks/:id` 新增 PUT（更新收藏）。
+> v1.18.1 说明：`saveSettings` 新增 `examDate`（YYYY-MM-DD）、`moduleOn`（`{ hot?, bookmarks? }`）；`GET /api/db` 返回 `examDate` / `moduleOn` / `habits`；`POST /api/bookmarks/:id` 新增 PUT（更新收藏）。
 | `saveStudy(seconds)` | 秒数 | `{ ok }` | 学习时长落库 |
 | `resetAll()` | 无 | 无 | 清空本机数据（仅本地测试用） |
 
