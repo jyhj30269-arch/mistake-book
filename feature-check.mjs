@@ -85,8 +85,8 @@ try {
   check("侧边栏已删除 随机复习/数据统计", !nav.sideItems.some(t => t.includes("随机复习") || t.includes("数据统计")));
   check("移动 Tab 5 项含「更多」，抽屉含设置", nav.tabItems.length === 5 && nav.tabItems.join().includes("更多") && nav.tabItems.join().includes("待办") && nav.drawerHasSettings);
 
-  // 2) 复习续传按钮
-  await evalJS(`localStorage.setItem("review-resume", JSON.stringify({ queue: [1,2,3], idx: 2, done: [0,1], skipped: [], results: [] })); renderResumeButton(); true`);
+  // 2) 复习续传按钮（断点存服务端 settings，v1.15.0 起不再用 localStorage）
+  await evalJS(`reviewResume = { queue: [1,2,3], idx: 2, done: [0,1], skipped: [], results: [] }; apiCall(API.saveSettings({ reviewResume })); renderResumeButton(); true`);
   const resumeShown = await evalJS(`document.getElementById("review-resume-btn").style.display !== "none" && document.getElementById("review-resume-btn").textContent.includes("已做 2 / 3")`);
   check("续传按钮显示「已做 2 / 3」", resumeShown);
   await evalJS(`continueResume(); true`);

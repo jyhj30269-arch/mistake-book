@@ -1,10 +1,9 @@
 /* ============================================================
-   个人工作台 · 业务逻辑 v1.14.0
-   版本：v1.14.0（增量写改造：单对象变更走增量 API，导入/重置走整库快照；
-   跨标签页 BroadcastChannel 同步；错题原图落库并详情/复习展示；
-   数据库备份按钮 + 服务端启动自动备份；删除收藏连带清理上传文件；
-   SM-2 轻量间隔重复调度：到期优先推荐/抽题、详情页下次复习时间；
-   错因标签专项筛选、复习卡回忆错因；种子数据统一走服务端）
+   个人工作台 · 业务逻辑 v1.15.0
+   版本：v1.15.0（复习热力图+连续打卡；今日复习任务卡；默写模式；
+   自建复习集；学情周报；全文搜索扩至笔记/错因；CSV 批量导入；
+   题库分页+移动端卡片；深色模式；复习断点/提醒日期迁服务端；
+   OCR 单题重试；备份恢复入口）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
    仪表盘总览（问候/概览卡/快捷入口/目标进度/今日待办/最近动态）/
    今日待办（子任务/优先级/标签/提醒/列表看板/快速添加解析）/
@@ -110,7 +109,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.14.0";
+const APP_VERSION = "1.15.0";
 
 const TREE = [
   {
@@ -163,6 +162,7 @@ let personal = {
   bookmarks: []    // { id, title, kind, url, note, tags, createdAt }
 };
 let personalIdSeq = 1;
+let reviewSets = []; // 自建复习集 { id, name, qids: [], createdAt }
 let summaryRange = "week";
 let dailyMood = "";
 let todoViewMode = "list";   // 待办：list | board
@@ -264,6 +264,19 @@ function nextDueText(qid) {
   if (days <= 0) return `今天到期（间隔 ${s.intervalDays} 天）`;
   if (days === 1) return "明天到期";
   return `${days} 天后到期（间隔 ${s.intervalDays} 天）`;
+}
+
+/* 连续打卡天数：从今天往前数连续有学习记录（按天时长 > 0 或当天有复习）的天数 */
+function currentStreak() {
+  let n = 0;
+  for (let i = 0; i < 400; i++) {
+    const key = fmtDate(Date.now() - i * 86400000);
+    const studied = (study.perDay[key] || 0) > 0;
+    const reviewed = reviewLogs.some(l => fmtDate(l.at) === key);
+    if (studied || reviewed) n++;
+    else break;
+  }
+  return n;
 }
 
 function lvTag(lv, decay) {
@@ -421,12 +434,16 @@ function renderDashboard() {
   const rec = recommendQuestions(10);
   $("#rec-count").textContent = rec.length;
   const dueToday = questions.filter(q => isDue(q.id) && displayMastery(q.id).lv.key !== "blue").length;
-  $("#rec-desc").textContent = `今日到期 ${dueToday} 题 · 已按"到期优先 + 掌握度差 + 错因权重"排序，前 ${rec.length} 道；可手动调数量`;
+  const doneToday = reviewLogs.filter(l => fmtDate(l.at) === fmtDate(Date.now())).length;
+  $("#rec-desc").textContent = `已按"到期优先 + 掌握度差 + 错因权重"排序，前 ${rec.length} 道；可手动调数量`;
+  const taskLine = $("#due-task-line");
+  if (taskLine) taskLine.innerHTML = `<span>🔥 今日到期 <b>${dueToday}</b> 题 · 今日已复习 <b>${doneToday}</b> 题 · 连续打卡 <b>${currentStreak()}</b> 天</span><span class="small muted">${dueToday ? "建议先复习到期题" : "今天没有到期任务 🎉"}</span>`;
   window.__rec = rec;
   renderRecPanel();
 
   // 仪表盘内联：随机复习 + 数据统计
   renderReviewConfig();
+  renderReviewSets();
   renderStats();
   renderOverview();
   renderTodayOverview();
@@ -452,6 +469,13 @@ function weakKps() {
 function startReviewFromRec() {
   const n = window.__rec ? window.__rec.length : 10;
   startReviewWith(n, window.__rec);
+}
+
+/* 🔥 复习全部到期题（间隔重复队列） */
+function reviewDueNow() {
+  const due = questions.filter(q => isDue(q.id) && displayMastery(q.id).lv.key !== "blue");
+  if (!due.length) { toast("今天没有到期的题目 🎉", "success"); return; }
+  startReviewWith(due.length, due);
 }
 
 /* ---------------- 单题录入 ---------------- */
@@ -844,7 +868,44 @@ function renderInputReview() {
   $("#input-prev-btn").style.display = inputCursor > 0 ? "" : "none";
   $("#input-next-btn").style.display = inputCursor < inputQueue.length - 1 ? "" : "none";
   $("#input-save-all-btn").style.display = inputQueue.length > 1 ? "" : "none";
+  const retryBtn = $("#input-retry-btn");
+  if (retryBtn) retryBtn.style.display = cur.status === "failed" ? "" : "none";
   renderQueue();
+}
+
+/* ⑩ OCR 单题失败重试：只重跑当前题，不影响其他题 */
+function retryCurrentOcr() {
+  if (!inputQueue.length) return;
+  const it = inputQueue[inputCursor];
+  if (!it) return;
+  it.status = "ocr";
+  renderQueue();
+  const retryBtn = $("#input-retry-btn");
+  if (retryBtn) retryBtn.style.display = "none";
+  (async () => {
+    try {
+      const qImg = inputImgs.find(x => x.id === it.qImgId);
+      if (qImg) {
+        const r = await API.ocrRecognize({ dataUrl: qImg.dataUrl, name: qImg.name }, { isSolution: false });
+        it.titleTex = r.titleTex || "";
+        it.lowConf = r.lowConf || [];
+      }
+      if (it.sImgId) {
+        const sImg = inputImgs.find(x => x.id === it.sImgId);
+        if (sImg) {
+          const rs = await API.ocrRecognize({ dataUrl: sImg.dataUrl, name: sImg.name }, { isSolution: true });
+          it.solutionTex = rs.solutionTex || "";
+        }
+      }
+      it.status = "done";
+      toast("重试成功，请校对", "success");
+    } catch (e) {
+      it.status = "failed";
+      toast("重试仍失败：" + (e.message || "OCR 错误"), "error");
+    }
+    renderQueue();
+    renderInputReview();
+  })();
 }
 
 function renderQueue() {
@@ -1035,6 +1096,8 @@ function commitQuestion(id, q) {
 const filters = { lv: new Set(), tag: new Set(), uncat: false, dup: false, mark: null };
 let treeMode = true;
 let qSel = new Set();
+let qPage = 1;              // 题库分页（每页 Q_PAGE_SIZE，加载更多）
+const Q_PAGE_SIZE = 100;
 
 function toggleFilter(el) {
   const f = el.dataset.f, v = el.dataset.v;
@@ -1045,6 +1108,12 @@ function toggleFilter(el) {
   else if (f === "dup") filters.dup = !filters.dup;
   else if (f === "mark") filters.mark = filters.mark === v ? null : v;
   el.classList.toggle("on");
+  qPage = 1;
+  renderQuestions();
+}
+
+function loadMoreQuestions() {
+  qPage++;
   renderQuestions();
 }
 
@@ -1066,7 +1135,7 @@ function filteredQuestions() {
       if (tf.kp && tf.kp !== "all" && !q.kps.includes(tf.kp)) return false;
     }
     if (kw) {
-      const hay = (q.titleTex + " " + q.solutionTex + " " + q.kps.join(" ") + " " + TAGS.filter(t => q.tags.includes(t.key)).map(t => t.name).join(" ")).toLowerCase();
+      const hay = (q.titleTex + " " + q.solutionTex + " " + q.wrongAnswer + " " + q.note + " " + q.kps.join(" ") + " " + TAGS.filter(t => q.tags.includes(t.key)).map(t => t.name).join(" ")).toLowerCase();
       if (!hay.includes(kw)) return false;
     }
     return true;
@@ -1121,6 +1190,7 @@ function treePick(el) {
   else if (el.dataset.chapter !== undefined) { tf.chapter = el.dataset.chapter; tf.kp = undefined; }
   else if (el.dataset.kp !== undefined) { tf.kp = el.dataset.kp; }
   window.__treeFilter = tf;
+  qPage = 1;
   renderTree();
   renderQuestions();
 }
@@ -1135,23 +1205,51 @@ function toggleTree() {
 function renderQuestions() {
   renderTree();
   const list = filteredQuestions();
+  const shown = list.slice(0, qPage * Q_PAGE_SIZE);
   $("#q-sub").textContent = `共 ${questions.length} 题 · 当前筛选 ${list.length} 题`;
-  $("#q-count").textContent = `显示 ${list.length} / ${questions.length} 条`;
+  $("#q-count").textContent = `显示 ${shown.length} / ${list.length} 条`;
   $("#q-batch-btn").style.display = qSel.size ? "" : "none";
+  $("#q-set-btn").style.display = qSel.size ? "" : "none";
   $("#q-sel-all").checked = list.length > 0 && list.every(q => qSel.has(q.id));
+  const moreWrap = $("#q-more-wrap");
+  if (moreWrap) moreWrap.style.display = list.length > shown.length ? "flex" : "none";
 
-  $("#q-body").innerHTML = list.map(q => {
+  if (!list.length) {
+    $("#q-body").innerHTML = `<div class="empty-state">📭 没有符合条件的题目。<br/><span class="small muted">去「识别录入」添加第一道错题，或调整筛选条件。</span></div>`;
+    return;
+  }
+  const isMobile = window.innerWidth <= 768;
+  const rows = shown.map(q => {
     const m = displayMastery(q.id);
     const dup = dupCountFor(q);
     const tagTxt = TAGS.filter(t => q.tags.includes(t.key)).map(t => `${t.icon} ${t.name.split("/")[0]}`).join(" ");
     const kpTxt = q.kps.length ? q.kps.join(" / ") : '<span class="tag">未分类</span>';
     const aged = m.decay;
+    const meta = `${esc(TREE.flatMap(s => s.children).find(c => c.id === q.subSubject)?.name || "")} · ${fmtDate(q.createdAt)} 录入${(q.imgs || []).length ? ` · <span title="含 OCR 原图">📷 ${q.imgs.length}</span>` : ""}${dup ? ` · <span class="text-danger">⚠ 疑似重复 ${dup}</span>` : ""}${aged ? " · 超过 7 天未复习" : ""}`;
+    if (isMobile) {
+      return `<div class="q-card-item card">
+        <div class="flex-between">
+          <label class="small muted flex" style="gap:6px;cursor:pointer;"><input type="checkbox" ${qSel.has(q.id) ? "checked" : ""} onclick="toggleSel(${q.id},this)" /> 选择</label>
+          ${lvTag(m.lv, m.decay)}
+          <div class="flex">
+            <button class="btn btn-sm" onclick="openDetail(${q.id})">详情</button>
+            <button class="btn btn-sm ${q.marks.star ? "btn-primary" : ""}" onclick="toggleMark(${q.id},'star',this)">★</button>
+          </div>
+        </div>
+        <div class="katex-render mt-8" data-tex="${esc(q.titleTex)}"></div>
+        <div class="small muted mt-8">${meta}</div>
+        <div class="flex mt-8" style="flex-wrap:wrap;gap:6px;align-items:center;">
+          <span class="tag">复习 ${logsOf(q.id).length} 次</span>
+          ${tagTxt ? `<span class="small">${tagTxt}</span>` : ""}
+        </div>
+      </div>`;
+    }
     return `<tr>
       <td><input type="checkbox" ${qSel.has(q.id) ? "checked" : ""} onclick="toggleSel(${q.id},this)" /></td>
       <td>${lvTag(m.lv, m.decay)}</td>
       <td>
         <div class="katex-render" data-tex="${esc(q.titleTex)}"></div>
-        <div class="small muted mt-8">${esc(TREE.flatMap(s => s.children).find(c => c.id === q.subSubject)?.name || "")} · ${fmtDate(q.createdAt)} 录入${(q.imgs || []).length ? ` · <span title="含 OCR 原图">📷 ${q.imgs.length}</span>` : ""}${dup ? ` · <span class="text-danger">⚠ 疑似重复 ${dup}</span>` : ""}${aged ? " · 超过 7 天未复习" : ""}</div>
+        <div class="small muted mt-8">${meta}</div>
       </td>
       <td><div class="flex" style="flex-wrap:wrap;">${kpTxt}</div></td>
       <td>${tagTxt || '<span class="muted">—</span>'}</td>
@@ -1164,6 +1262,12 @@ function renderQuestions() {
       </td>
     </tr>`;
   }).join("");
+  $("#q-body").innerHTML = isMobile
+    ? `<div class="q-card-list">${rows}</div>`
+    : `<table class="table"><thead><tr>
+        <th style="width:30px;"></th><th style="width:120px;">掌握度</th><th>题面</th>
+        <th>知识点</th><th>错因</th><th>复习</th><th>操作</th>
+      </tr></thead><tbody>${rows}</tbody></table>`;
   renderMath($("#q-body"));
 }
 
@@ -1531,25 +1635,23 @@ function fillRevSub() {
 function renderResumeButton() {
   const btn = $("#review-resume-btn");
   if (!btn) return;
-  try {
-    const r = JSON.parse(localStorage.getItem("review-resume") || "null");
-    if (r && Array.isArray(r.queue) && r.idx < r.queue.length) {
-      btn.style.display = "";
-      btn.textContent = `↻ 继续上次复习（已做 ${r.idx} / ${r.queue.length}）`;
-    } else {
-      btn.style.display = "none";
-    }
-  } catch (e) { btn.style.display = "none"; }
+  const r = reviewResume;
+  if (r && Array.isArray(r.queue) && r.idx < r.queue.length) {
+    btn.style.display = "";
+    btn.textContent = `↻ 继续上次复习（已做 ${r.idx} / ${r.queue.length}）`;
+  } else {
+    btn.style.display = "none";
+  }
 }
 
 function continueResume() {
-  let r = null;
-  try { r = JSON.parse(localStorage.getItem("review-resume") || "null"); } catch (e) { /* 忽略 */ }
+  const r = reviewResume;
   if (!r || !Array.isArray(r.queue)) { toast("没有可继续的复习进度", "error"); return; }
   const pool = r.queue.map(id => questions.find(q => q.id === id)).filter(Boolean);
   if (!pool.length) {
     toast("上次的题目已被删除，无法继续", "error");
-    localStorage.removeItem("review-resume");
+    reviewResume = null;
+    apiCall(API.saveSettings({ reviewResume: null }));
     renderResumeButton();
     return;
   }
@@ -1559,7 +1661,8 @@ function continueResume() {
   reviewDone = new Set(r.done || []);
   reviewSkipped = new Set(r.skipped || []);
   reviewStartedAt = Date.now();
-  localStorage.removeItem("review-resume");
+  reviewResume = null;
+  apiCall(API.saveSettings({ reviewResume: null }));
   renderResumeButton();
   $("#review-config").style.display = "none";
   $("#review-done").style.display = "none";
@@ -1670,6 +1773,116 @@ function weightOf(q) {
   return w;
 }
 
+/* ---------------- 自建复习集（卡片组） ---------------- */
+function renderReviewSets() {
+  const card = $("#review-sets-card"), list = $("#review-sets-list");
+  if (!card || !list) return;
+  card.style.display = "";
+  list.innerHTML = reviewSets.length ? reviewSets.map(rs => {
+    const qs = (rs.qids || []).map(qid => questions.find(q => q.id === qid)).filter(Boolean);
+    return `<div class="flex-between set-row">
+      <div style="min-width:0;">
+        <b>${esc(rs.name)}</b>
+        <span class="small muted"> · ${qs.length} 题</span>
+      </div>
+      <div class="flex" style="gap:6px;">
+        <button class="btn btn-sm btn-primary" onclick="startSetReview(${rs.id})">▶ 复习</button>
+        <button class="btn btn-sm" onclick="renameReviewSet(${rs.id})">改名</button>
+        <button class="btn btn-sm btn-danger" onclick="delReviewSet(${rs.id})">删</button>
+      </div>
+    </div>`;
+  }).join("") : `<div class="small muted">📭 还没有复习集。点右上角「＋ 新建复习集」，或在题库勾选题目后「📁 加入复习集」。</div>`;
+}
+
+function startSetReview(id) {
+  const rs = reviewSets.find(x => x.id === id);
+  if (!rs) return;
+  const qs = (rs.qids || []).map(qid => questions.find(q => q.id === qid)).filter(Boolean);
+  if (!qs.length) { toast("该复习集还没有题目（去题库勾选后加入）", "error"); return; }
+  startReviewWith(qs.length, qs);
+}
+
+function addReviewSet() {
+  openModal("新建复习集", `
+    <div class="field"><label>名称</label><input class="input" id="rs-name" placeholder="如：考前冲刺 · 高数极限" /></div>
+    <div class="small muted">在题库勾选题目后点「📁 加入复习集」即可往复习集里添加题目。</div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="doAddReviewSet()">创建</button>`);
+}
+function doAddReviewSet() {
+  const name = $("#rs-name").value.trim();
+  if (!name) { toast("请输入名称", "error"); return; }
+  const rs = { id: personalIdSeq++, name, qids: [], createdAt: Date.now() };
+  reviewSets.push(rs);
+  apiCall(API.saveReviewSet(rs));
+  closeModal();
+  renderReviewSets();
+  toast("复习集已创建", "success");
+}
+
+function pickReviewSet() {
+  const sel = questions.filter(q => qSel.has(q.id));
+  if (!sel.length) { toast("请先在题库勾选题目", "error"); return; }
+  openModal(`加入复习集（已选 ${sel.length} 题）`, `
+    <div class="small muted mb-8">选择要加入的复习集：</div>
+    <div id="rs-pick-list">${reviewSets.length ? reviewSets.map(rs =>
+      `<label class="flex set-link-opt" style="gap:8px;cursor:pointer;padding:6px 0;">
+        <input type="radio" name="rs-pick" value="${rs.id}" />
+        <span>${esc(rs.name)}（${rs.qids.length} 题）</span>
+      </label>`).join("") : '<div class="small muted">还没有复习集，先创建一个。</div>'}</div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     ${reviewSets.length ? `<button class="btn btn-primary" onclick="doAddToSet()">加入</button>` : `<button class="btn btn-primary" onclick="closeModal();addReviewSet()">＋ 新建复习集</button>`}`
+  );
+}
+function doAddToSet() {
+  const radio = document.querySelector('input[name="rs-pick"]:checked');
+  if (!radio) { toast("请选择一个复习集", "error"); return; }
+  const rs = reviewSets.find(x => x.id === Number(radio.value));
+  if (!rs) return;
+  const before = (rs.qids || []).length;
+  const ids = new Set(rs.qids);
+  qSel.forEach(id => ids.add(id));
+  rs.qids = Array.from(ids);
+  apiCall(API.updateReviewSet(rs));
+  const added = rs.qids.length - before;
+  qSel.clear();
+  closeModal();
+  renderQuestions();
+  toast(`已加入 ${added} 题到「${rs.name}」`, "success");
+}
+
+function renameReviewSet(id) {
+  const rs = reviewSets.find(x => x.id === id);
+  if (!rs) return;
+  window.__rsRename = rs;
+  openModal("重命名复习集", `<div class="field"><label>名称</label><input class="input" id="rs-rename" value="${esc(rs.name)}" /></div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-primary" onclick="doRenameReviewSet()">保存</button>`);
+}
+function doRenameReviewSet() {
+  const rs = window.__rsRename;
+  const name = $("#rs-rename").value.trim();
+  if (!rs || !name) return;
+  rs.name = name;
+  apiCall(API.updateReviewSet(rs));
+  closeModal();
+  renderReviewSets();
+  toast("已重命名", "success");
+}
+function delReviewSet(id) {
+  const rs = reviewSets.find(x => x.id === id);
+  if (!rs) return;
+  openModal("删除复习集", `<div class="small muted">确定删除「${esc(rs.name)}」？其中的题目不会被删除。</div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-danger" onclick="closeModal();doDelReviewSet(${id})">删除</button>`);
+}
+function doDelReviewSet(id) {
+  reviewSets = reviewSets.filter(x => x.id !== id);
+  apiCall(API.deleteReviewSet(id));
+  renderReviewSets();
+  toast("已删除复习集", "success");
+}
+
 function showReviewCard() {
   if (reviewIdx >= reviewQueue.length) { showReviewDone(); return; }
   const q = reviewQueue[reviewIdx];
@@ -1679,6 +1892,15 @@ function showReviewCard() {
   renderRevNav();
   $("#rev-question").innerHTML = "";
   renderTex($("#rev-question"), q.titleTex, true);
+  // ③ 默写模式：vocabulary / essay 类题目先默写再对照答案
+  const writeWrap = $("#rev-write-wrap"), writeBox = $("#rev-write-box");
+  if (writeWrap && writeBox) {
+    const writeType = q.type === "vocabulary" || q.type === "essay";
+    writeWrap.style.display = writeType ? "" : "none";
+    writeBox.style.display = "none";
+    const wi = $("#rev-write-input");
+    if (wi) wi.value = "";
+  }
   // P3：回忆错因（录入时填写的 wrongAnswer，先回忆再看答案）
   const wrongWrap = $("#rev-wrong-wrap"), wrongBox = $("#rev-wrong");
   if (wrongWrap && wrongBox) {
@@ -1761,6 +1983,28 @@ function toggleRevWrong() {
   box.style.display = box.style.display === "none" ? "" : "none";
 }
 
+/* ③ 默写模式交互 */
+function toggleRevWrite() {
+  const box = $("#rev-write-box");
+  if (!box) return;
+  box.style.display = box.style.display === "none" ? "" : "none";
+  const wi = $("#rev-write-input");
+  if (wi && box.style.display !== "none") wi.focus();
+}
+
+function revWriteCompare() {
+  const mine = $("#rev-write-input").value.trim();
+  const q = window.__curQ;
+  if (!mine) { toast("先写下你的答案再对照", "error"); return; }
+  revealAnswer();
+  const mineBox = document.createElement("div");
+  mineBox.className = "alert alert-warn small";
+  mineBox.textContent = `✍️ 你的作答：${mine.slice(0, 300)}`;
+  const ans = $("#rev-answer");
+  ans.insertBefore(mineBox, ans.firstChild);
+  toast("对照答案，然后自评", "success");
+}
+
 function selfRate(result) {
   const q = window.__curQ;
   const log = { id: ++reviewSeq, qid: q.id, at: Date.now(), result };
@@ -1786,16 +2030,17 @@ function selfRate(result) {
 
 function reviewExit() {
   openModal("复习进度已保存", `
-    <div class="small muted">已做 ${reviewResults.length} / ${reviewQueue.length} 题，进度存 localStorage（断点续传）。</div>`,
+    <div class="small muted">已做 ${reviewResults.length} / ${reviewQueue.length} 题，进度已保存（断点续传，随账号数据落库）。</div>`,
     `<button class="btn" onclick="closeModal();go('dashboard')">知道了</button>`
   );
-  localStorage.setItem("review-resume", JSON.stringify({
+  reviewResume = {
     queue: reviewQueue.map(q => q.id),
     idx: reviewIdx,
     done: Array.from(reviewDone),
     skipped: Array.from(reviewSkipped),
     results: reviewResults
-  }));
+  };
+  apiCall(API.saveSettings({ reviewResume }));
 }
 
 function showReviewDone() {
@@ -1849,12 +2094,15 @@ function renderStats() {
   $("#stats-avg").textContent = `平均复习 ${avg.toFixed(1)} 次 / 题`;
 
   const pie = $("#stats-pie"), tagPie = $("#stats-tag-pie"), weak = $("#stats-weak"), studyChart = $("#stats-study");
-  if (!window.echarts) { [pie, tagPie, weak, studyChart].forEach(el => el.innerHTML = `<div class="muted" style="padding:40px;">ECharts 未加载</div>`); return; }
+  const heat = $("#stats-heatmap");
+  if (!window.echarts) { [pie, tagPie, weak, studyChart, heat].forEach(el => el.innerHTML = `<div class="muted" style="padding:40px;">ECharts 未加载</div>`); return; }
+  // 复用已初始化的实例（避免重复 init 告警与内存泄漏）
+  const chart = (el) => (el && window.echarts.getInstanceByDom(el)) || window.echarts.init(el);
   const lvData = Object.values(LV).map(lv => ({
     name: lv.icon + " " + lv.name,
     value: questions.filter(q => displayMastery(q.id).lv.key === lv.key).length
   })).filter(x => x.value > 0);
-  echarts.init(pie).setOption({
+  chart(pie).setOption({
     color: ["#862E2E", "#E03131", "#F76707", "#ADB5BD", "#F59F00", "#2F9E44", "#1971C2"],
     tooltip: { trigger: "item" },
     series: [{ type: "pie", radius: ["42%", "68%"], label: { formatter: "{b}: {c}" }, data: lvData }]
@@ -1863,13 +2111,13 @@ function renderStats() {
     name: t.icon + " " + t.name,
     value: questions.filter(q => q.tags.includes(t.key)).length
   })).filter(x => x.value > 0);
-  echarts.init(tagPie).setOption({
+  chart(tagPie).setOption({
     color: ["#4C6EF5", "#F59F00", "#F76707", "#2F9E44", "#E03131", "#ADB5BD"],
     tooltip: { trigger: "item" },
     series: [{ type: "pie", radius: ["42%", "68%"], label: { formatter: "{b}: {c}" }, data: tagData }]
   });
   const wk = weakKps().slice(0, 10);
-  echarts.init(weak).setOption({
+  chart(weak).setOption({
     tooltip: {},
     grid: { left: 120, right: 30, top: 10, bottom: 24 },
     xAxis: { type: "value" },
@@ -1886,17 +2134,54 @@ function renderStats() {
     days.push(`${d.getMonth() + 1}/${d.getDate()}`);
     vals.push(Math.round((study.perDay[fmtDate(d.getTime())] || 0) / 60)); // 真实按天记录（秒 → 分钟）
   }
-  echarts.init(studyChart).setOption({
+  chart(studyChart).setOption({
     tooltip: {},
     grid: { left: 40, right: 10, top: 12, bottom: 24 },
     xAxis: { type: "category", data: days, axisLabel: { interval: 4 } },
     yAxis: { type: "value", name: "分钟" },
     series: [{ type: "line", smooth: true, data: vals, areaStyle: { opacity: .15 }, itemStyle: { color: "#4C6EF5" } }]
   });
+
+  // 🔥 复习热力图（近 12 个月） + 连续打卡
+  if (heat) {
+    const streakEl = $("#heatmap-streak");
+    if (streakEl) streakEl.textContent = `连续打卡 ${currentStreak()} 天`;
+    const rangeStart = new Date(Date.now() - 364 * 86400000);
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const heatData = [];
+    for (let i = 0; i < 365; i++) {
+      const d = new Date(rangeStart.getTime() + i * 86400000);
+      const key = fmt(d);
+      heatData.push([key, Math.round((study.perDay[key] || 0) / 60)]);
+    }
+    const today = fmt(new Date());
+    chart(heat).setOption({
+      tooltip: { formatter: p => `${p.data[0]}：${p.data[1]} 分钟` },
+      visualMap: { min: 0, max: 120, calculable: false, orient: "horizontal", left: "center", bottom: 0,
+        inRange: { color: ["#EBEDF0", "#9BE9A8", "#40C463", "#30A14E", "#216E39"] } },
+      calendar: { range: [fmt(rangeStart), today], cellSize: ["auto", 14], left: 50, right: 10, top: 20, bottom: 40,
+        yearLabel: { show: false }, dayLabel: { firstDay: 1 }, monthLabel: { nameMap: "cn" } },
+      series: [{ type: "heatmap", coordinateSystem: "calendar", data: heatData }]
+    });
+  }
 }
 
 /* ---------------- 设置 ---------------- */
 let remindOn = true;
+let remindDate = "";      // 上次提醒日期（存服务端 settings）
+let reviewResume = null;  // 复习断点（存服务端 settings）
+let theme = "light"; // 深色/浅色（存服务端 settings）
+function applyTheme() {
+  document.documentElement.dataset.theme = theme;
+  const el = $("#theme-switch");
+  if (el) el.textContent = theme === "dark" ? "切换到浅色" : "切换到深色";
+}
+function toggleTheme() {
+  theme = theme === "dark" ? "light" : "dark";
+  applyTheme();
+  apiCall(API.saveSettings({ theme }));
+  toast(theme === "dark" ? "已切换到深色模式 🌙" : "已切换到浅色模式 ☀️");
+}
 function selectDefaultNum(v) {
   reviewCfg.num = Number(v);
   apiCall(API.saveSettings({ reviewCfg }));
@@ -1921,14 +2206,15 @@ function demoNotify() {
   toast("演示通知（浏览器可能要求授权）");
 }
 
-/* 打开 App 时提醒：今天还没复习过则弹一次（同一天不重复） */
+/* 打开 App 时提醒：今天还没复习过则弹一次（同一天不重复，日期存服务端） */
 function remindCheckToday() {
   if (!remindOn) return;
   const today = fmtDate(Date.now());
-  if (localStorage.getItem("mb-remind-date") === today) return;
+  if (remindDate === today) return;
   const reviewed = reviewLogs.some(l => fmtDate(l.at) === today);
   if (!reviewed) {
-    localStorage.setItem("mb-remind-date", today);
+    remindDate = today;
+    apiCall(API.saveSettings({ remindDate: today }));
     openModal("📌 今日复习提醒", `
       <div class="small">今天还没有复习记录。打开 App 是复习的最好时机，去抽几题吧。</div>`,
       `<button class="btn" onclick="closeModal()">稍后再说</button>
@@ -2218,6 +2504,9 @@ function exportJSON() {
     tree: TREE,
     study: { seconds: study.seconds, blurPrompt: study.blurPrompt, perDay: study.perDay },
     remindOn,
+    theme,
+    remindDate,
+    reviewResume,
     reviewCfg: { ...reviewCfg },
     personal: {
       todos: personal.todos,
@@ -2225,7 +2514,8 @@ function exportJSON() {
       reviews: personal.reviews,
       inbox: personal.inbox,
       bookmarks: personal.bookmarks
-    }
+    },
+    reviewSets
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
@@ -2252,6 +2542,43 @@ async function backupDb() {
   } catch (e) {
     toast(e.message || "备份失败", "error");
   }
+}
+
+/* ⑭ 从备份 .db 文件恢复（服务端校验 + 恢复前自备份） */
+function handleRestoreFile(files) {
+  const f = files && files[0];
+  if (!f) return;
+  if (f.size > 100 * 1024 * 1024) { toast("文件太大（限 100MB）", "error"); return; }
+  window.__restoreFile = f;
+  openModal("从备份恢复（危险操作）", `
+    <div class="small">将用「${esc(f.name)}」覆盖当前数据库（恢复前服务端会自动备份当前库到 backups/）。请输入 <b>恢复</b> 确认：</div>
+    <div class="field mt-16"><input class="input" id="restore-confirm" placeholder="输入「恢复」" /></div>`,
+    `<button class="btn" onclick="closeModal()">取消</button>
+     <button class="btn btn-danger" onclick="doRestore()">确认恢复</button>`);
+  $("#restore-file").value = "";
+}
+
+async function doRestore() {
+  const f = window.__restoreFile;
+  window.__restoreFile = null;
+  const confirmInput = $("#restore-confirm");
+  if (!confirmInput || confirmInput.value.trim() !== "恢复") { toast("需输入「恢复」二字", "error"); return; }
+  closeModal();
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      await API.restoreDb(f.name, reader.result);
+      toast("恢复成功，正在重新加载数据…", "success");
+      setTimeout(async () => {
+        await loadLocal();
+        go("dashboard");
+        toast("已恢复备份数据", "success");
+      }, 800);
+    } catch (e) {
+      toast(e.message || "恢复失败", "error");
+    }
+  };
+  reader.readAsDataURL(f);
 }
 
 /* ---------------- 导入导出（真实实现） ---------------- */
@@ -2283,6 +2610,67 @@ function handleImportFile(files) {
   };
   reader.readAsText(f);
   $("#import-file").value = "";
+}
+
+/* ---------------- CSV 批量导入（题面,解析,错因,科目,子科目,章节,知识点;分号,标签;分号） ---------------- */
+function handleCsvFile(files) {
+  const f = files && files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const rows = parseCSV(String(reader.result));
+      if (!rows.length) { toast("CSV 为空或格式不对（首行应为表头：题面,解析,错因,科目,子科目,章节,知识点,标签）", "error"); return; }
+      let ok = 0, skip = 0;
+      rows.forEach(r => {
+        const titleTex = String(r["题面"] || r.title || "").trim();
+        if (!titleTex) { skip++; return; }
+        const q = mkQ({
+          titleTex,
+          solutionTex: String(r["解析"] || r.solution || "").trim(),
+          wrongAnswer: String(r["错因"] || "").trim(),
+          subject: findNodeName(String(r["科目"] || ""), 0) || "subj-math",
+          subSubject: findNodeName(String(r["子科目"] || ""), 1) || "",
+          chapter: findNodeName(String(r["章节"] || ""), 2) || "",
+          kps: String(r["知识点"] || "").split(/[;；]/).map(s => s.trim()).filter(Boolean),
+          tags: String(r["标签"] || "").split(/[;；]/).map(s => s.trim()).filter(Boolean)
+            .map(t => { const m = TAGS.find(x => x.name.startsWith(t) || x.key === t); return m ? m.key : ""; }).filter(Boolean)
+        });
+        questions.push(q);
+        apiCall(API.saveQuestion(q));
+        ok++;
+      });
+      qPage = 1;
+      renderQuestions();
+      toast(`CSV 导入完成：新增 ${ok} 题${skip ? `，跳过 ${skip} 行（题面为空）` : ""}`, ok ? "success" : "error");
+    } catch (e) {
+      toast("CSV 解析失败：" + e.message, "error");
+    }
+  };
+  reader.readAsText(f, "utf-8");
+  $("#import-csv").value = "";
+}
+
+/* 按名称在知识点树中找节点 id（level: 0 科目 / 1 子科目 / 2 章节），找不到返回 "" */
+function findNodeName(name, level) {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  if (level === 0) { const s = TREE.find(x => x.name === n); return s ? s.id : ""; }
+  if (level === 1) { const ss = TREE.flatMap(s => s.children).find(c => c.name === n); return ss ? ss.id : ""; }
+  const ch = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.name === n);
+  return ch ? ch.id : "";
+}
+
+function parseCSV(text) {
+  const lines = String(text || "").split(/\r?\n/).filter(l => l.trim());
+  if (!lines.length) return [];
+  const head = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
+  return lines.slice(1).map(line => {
+    const cells = line.split(",").map(c => c.trim().replace(/^"|"$/g, ""));
+    const row = {};
+    head.forEach((h, i) => { if (h) row[h] = cells[i] || ""; });
+    return row;
+  });
 }
 
 function importPreview(data) {
@@ -3111,7 +3499,7 @@ function summaryData(mode) {
   const doneTodos = todos.filter(t => t.done).length;
   const rvCount = personal.reviews.filter(r => r.day >= startKey).length;
   const inboxCount = personal.inbox.filter(i => i.status === "open" && inR(i.createdAt)).length;
-  return { startKey, added, reviewed, studySec, todoTotal: todos.length, todoDone: doneTodos, rvCount, inboxCount };
+  return { start, startKey, added, reviewed, studySec, todoTotal: todos.length, todoDone: doneTodos, rvCount, inboxCount };
 }
 
 function renderSummary() {
@@ -3129,6 +3517,41 @@ function renderSummary() {
   if (sr) sr.innerHTML = `
     <div class="small">复盘 <b>${d.rvCount}</b> 天</div>
     <div class="small muted mt-8">${personal.reviews.length ? "坚持复盘，进步可见" : "还没有复盘记录"}</div>`;
+  // ⑤ 学情周报：薄弱知识点 TOP5 + 错因分布（基于周期内复习记录）
+  const learn = $("#summary-learn");
+  if (learn) {
+    const inRange = reviewLogs.filter(l => l.at >= d.start);
+    const wkMap = {};
+    questions.forEach(q => {
+      const keys = q.kps.length ? q.kps : ["未分类"];
+      keys.forEach(k => {
+        const fails = inRange.filter(l => l.qid === q.id && l.result === "fail").length;
+        if (fails > 0) wkMap[k] = (wkMap[k] || 0) + fails;
+      });
+    });
+    const topWk = Object.entries(wkMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const tagCnt = {};
+    inRange.forEach(l => {
+      const q = questions.find(x => x.id === l.qid);
+      if (!q) return;
+      (q.tags.length ? q.tags : ["other"]).forEach(t => { tagCnt[t] = (tagCnt[t] || 0) + 1; });
+    });
+    const tagList = Object.entries(tagCnt).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    learn.innerHTML = `
+      <div>
+        <div class="card-title small mb-8">💪 薄弱知识点 TOP5（期间做错次数）</div>
+        ${topWk.length ? topWk.map(([k, n]) => `<div class="flex-between small" style="padding:4px 0;"><span>${esc(k)}</span><span class="tag tag-danger">错 ${n} 次</span></div>`).join("")
+          : `<div class="small muted">${d.reviewed ? "期间没有做错记录，状态不错 🎉" : "期间没有复习记录"}</div>`}
+      </div>
+      <div>
+        <div class="card-title small mb-8">🎯 错因分布（期间复习自评）</div>
+        ${tagList.length ? tagList.map(([t, n]) => {
+          const meta = TAGS.find(x => x.key === t) || { icon: "❓", name: t };
+          const pct = inRange.length ? Math.round(n / inRange.length * 100) : 0;
+          return `<div class="flex-between small" style="padding:4px 0;"><span>${meta.icon} ${meta.name}</span><span class="small muted">${n} 次 · ${pct}%</span></div>`;
+        }).join("") : `<div class="small muted">${d.reviewed ? "暂无标签数据" : "期间没有复习记录"}</div>`}
+      </div>`;
+  }
 }
 
 const MOOD_SCORE = { "😀": 5, "🙂": 4, "😐": 3, "😣": 2, "😫": 1 };
@@ -3929,6 +4352,9 @@ function persistLocal() {
     reviewSeq,
     study: { seconds: study.seconds, blurPrompt: study.blurPrompt, perDay: study.perDay },
     remindOn,
+    theme,
+    remindDate,
+    reviewResume,
     reviewCfg: { ...reviewCfg },
     personal: {
       todos: personal.todos,
@@ -3936,7 +4362,8 @@ function persistLocal() {
       reviews: personal.reviews,
       inbox: personal.inbox,
       bookmarks: personal.bookmarks
-    }
+    },
+    reviewSets
   };
   API.saveAll(data).catch(e => {
     serverDown = true;
@@ -3969,6 +4396,10 @@ async function loadLocal() {
     study.perDay = d.study.perDay || {};
   }
   if (typeof d.remindOn === "boolean") remindOn = d.remindOn;
+  if (typeof d.remindDate === "string") remindDate = d.remindDate;
+  if (d.reviewResume && typeof d.reviewResume === "object") reviewResume = d.reviewResume;
+  if (d.theme === "dark" || d.theme === "light") theme = d.theme;
+  applyTheme();
   if (d.reviewCfg) reviewCfg = { subject: "all", sub: "all", chapter: "", lv: "all", tag: "all", num: 3, ...d.reviewCfg };
   if (d.personal) {
     personal.todos = Array.isArray(d.personal.todos) ? d.personal.todos : [];
@@ -3981,6 +4412,7 @@ async function loadLocal() {
       ...personal.goals.map(g => g.id || 0),
       ...personal.inbox.map(i => i.id || 0),
       ...personal.bookmarks.map(b => b.id || 0)) + 1;
+    reviewSets = Array.isArray(d.reviewSets) ? d.reviewSets : [];
   }
   return true;
 }
@@ -4073,6 +4505,7 @@ window.startInputOCR = startInputOCR;
 window.renderInput = renderInput;
 window.inputPrev = inputPrev;
 window.inputNext = inputNext;
+window.retryCurrentOcr = retryCurrentOcr;
 window.toggleTexView = toggleTexView;
 window.resetInput = resetInput;
 window.saveCurrentQuestion = saveCurrentQuestion;
@@ -4081,12 +4514,14 @@ window.commitQuestion = commitQuestion;
 window.renderQuestions = renderQuestions;
 window.startReview = startReview;
 window.startReviewFromRec = startReviewFromRec;
+window.reviewDueNow = reviewDueNow;
 window.revealAnswer = revealAnswer;
 window.selfRate = selfRate;
 window.jumpTo = jumpTo;
 window.skipCurrent = skipCurrent;
 window.reviewExit = reviewExit;
 window.selectDefaultNum = selectDefaultNum;
+window.toggleTheme = toggleTheme;
 window.toggleRemind = toggleRemind;
 window.demoNotify = demoNotify;
 window.addTodo = addTodo;
@@ -4148,7 +4583,11 @@ window.delChapter = delChapter;
 window.doDelChapter = doDelChapter;
 window.exportJSON = exportJSON;
 window.backupDb = backupDb;
+window.handleRestoreFile = handleRestoreFile;
+window.doRestore = doRestore;
 window.handleImportFile = handleImportFile;
+window.handleCsvFile = handleCsvFile;
+window.loadMoreQuestions = loadMoreQuestions;
 window.doMergeImport = doMergeImport;
 window.showOverwriteConfirm = showOverwriteConfirm;
 window.doOverwrite = doOverwrite;
@@ -4180,6 +4619,18 @@ window.saveOcrConfig = saveOcrConfig;
 window.testOcrConnection = testOcrConnection;
 window.closeModal = closeModal;
 window.showReviewDone = showReviewDone;
+window.toggleRevWrite = toggleRevWrite;
+window.revWriteCompare = revWriteCompare;
+window.renderReviewSets = renderReviewSets;
+window.startSetReview = startSetReview;
+window.addReviewSet = addReviewSet;
+window.doAddReviewSet = doAddReviewSet;
+window.pickReviewSet = pickReviewSet;
+window.doAddToSet = doAddToSet;
+window.renameReviewSet = renameReviewSet;
+window.doRenameReviewSet = doRenameReviewSet;
+window.delReviewSet = delReviewSet;
+window.doDelReviewSet = doDelReviewSet;
 
 /* 截图辅助：?auto=1 直接进入指定视图（需已登录） */
 if (location.search.includes("auto=1")) {

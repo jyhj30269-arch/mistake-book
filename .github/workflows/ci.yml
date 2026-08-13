@@ -37,3 +37,6 @@ jobs:
 
       - name: 间隔重复调度验证
         run: node verify-scheduler.mjs
+
+      - name: v1.15.0 新功能验证
+        run: node verify-v15.mjs

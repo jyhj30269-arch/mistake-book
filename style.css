@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · 前端风格系统 v1.13.2
+   个人工作台 · 前端风格系统 v1.15.0
    设计语言：Notion 风 · 浅色暖白 · 细边框 · 小圆角 · 轻阴影 · 蓝色强调
    ============================================================ */
 
@@ -1167,3 +1167,64 @@ a.hot-title:hover { color: var(--primary); }
 }
 .bm-title { font-size: 14px; font-weight: 600; color: var(--text); }
 a.bm-title:hover { color: var(--primary); text-decoration: underline; }
+
+/* ============ 深色模式（html[data-theme="dark"]） ============ */
+html[data-theme="dark"] {
+  --primary: #4C9AEA;
+  --primary-dark: #6FB0F0;
+  --primary-light: #1E3348;
+  --primary-soft: #182634;
+  --bg: #191919;
+  --card: #202020;
+  --border: #2E2E2E;
+  --border-strong: #3D3D3D;
+  --hover: #2A2A2A;
+  --text: #E8E6E3;
+  --text-2: #9E9C98;
+  --text-3: #6F6E6B;
+  --danger: #E57368;
+  --danger-light: #3A2422;
+  --success: #6FBF8F;
+  --success-light: #1E3328;
+  --lv-unreviewed: #8A8780;
+  --lv-yellow: #DBA14E;
+  --lv-yellow-bg: #3A2F1B;
+  --lv-green: #6FBF8F;
+  --lv-green-bg: #1E3328;
+  --lv-blue: #5FA8D4;
+  --lv-blue-bg: #1C2F3B;
+  --lv-orange: #D98A5A;
+  --lv-orange-bg: #3A2A1E;
+  --lv-red: #E57368;
+  --lv-red-bg: #3A2422;
+  --lv-darkred: #D98B85;
+  --lv-darkred-bg: #3A2826;
+  --shadow: 0 1px 3px rgba(0, 0, 0, .45);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .35);
+}
+html[data-theme="dark"] .login-wrap { background: var(--bg); }
+html[data-theme="dark"] input, html[data-theme="dark"] textarea, html[data-theme="dark"] select { color-scheme: dark; }
+html[data-theme="dark"] .login-card input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #202020 inset;
+}
+
+/* ============ 移动端题库卡片（<=768px 表格转卡片） ============ */
+@media (max-width: 768px) {
+  .q-card-list { display: flex; flex-direction: column; gap: 10px; }
+  .q-card-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+  .q-card-item .katex-render { overflow-wrap: anywhere; }
+}
+
+/* ============ 复习集行 ============ */
+.set-row { padding: 10px 0; border-bottom: 1px dashed var(--border); }
+.set-row:last-child { border-bottom: none; }
+.set-link-opt:hover { background: var(--hover); border-radius: 6px; padding: 6px 8px; }
+
+/* ============ 空状态 ============ */
+.empty-state {
+  text-align: center;
+  padding: 56px 20px;
+  color: var(--text-2);
+  font-size: 15px;
+  line-height: 2;
+}

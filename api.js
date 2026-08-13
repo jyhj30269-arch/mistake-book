@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · API 服务层（前后端接口契约 v1.14.0）
+   个人工作台 · API 服务层（前后端接口契约 v1.15.0）
    ------------------------------------------------------------
    本文件是前后端的唯一接口契约。业务代码只通过 window.API 访问
    OCR / 数据 / 去重，不直接读写 localStorage 或 fetch。
@@ -552,6 +552,42 @@
         throw new Error((j && j.message) || `备份失败 ${res.status}`);
       }
       return res.arrayBuffer();
+    },
+
+    /** 从备份 .db 文件恢复（服务端校验 SQLite 头，恢复前自动备份当前库） */
+    async restoreDb(name, dataUrl) {
+      if (this.mode !== "remote") throw new Error("本地模式不支持恢复");
+      const res = await fetch(`${this.base}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, dataUrl })
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((j && j.message) || `恢复失败 ${res.status}`);
+      return j;
+    },
+
+    /* ================= 自建复习集（卡片组） ================= */
+
+    async listReviewSets() {
+      if (this.mode !== "remote") return [];
+      const res = await fetch(`${this.base}/review-sets`);
+      const body = await res.json();
+      return body.data || [];
+    },
+    async saveReviewSet(rs) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/review-sets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rs) });
+      return res.json();
+    },
+    async updateReviewSet(rs) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/review-sets/${rs.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rs) });
+      return res.json();
+    },
+    async deleteReviewSet(id) {
+      if (this.mode !== "remote") return { ok: true };
+      return (await fetch(`${this.base}/review-sets/${id}`, { method: "DELETE" })).json();
     },
 
     /** 清空本机数据（恢复演示数据用） */

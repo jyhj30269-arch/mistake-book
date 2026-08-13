@@ -1,7 +1,10 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.14.0）
+   个人工作台 · 本地服务（v1.15.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.15.0：自建复习集 CRUD（/api/review-sets）；备份恢复
+   （/api/restore，校验 SQLite 头 + 恢复前自动备份当前库）；
+   settings 扩展（theme / remindDate / reviewResume）；启动自检横幅。
    v1.14.0：个人数据/题目/复习记录全部支持增量写接口；题目原图上传
    （/api/question-image）；整库备份（/api/backup，VACUUM INTO）与
    启动自动备份（backups/，保留 7 份）；删除收藏连带清理上传文件；
@@ -35,8 +38,10 @@ const MINERU_AVAILABLE = fs.existsSync(MINERU_CLI) && process.env.MINERU_DISABLE
   }
 })();
 
-const db = new DatabaseSync(DB_FILE);
-db.exec(`
+let db = new DatabaseSync(DB_FILE);
+/* 建表 + 轻量迁移（恢复备份后重开连接时也要执行一次） */
+function initDb() {
+  db.exec(`
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS questions(
     id INTEGER PRIMARY KEY,
@@ -107,27 +112,35 @@ db.exec(`
     tags TEXT DEFAULT '[]',
     created_at INTEGER
   );
+  CREATE TABLE IF NOT EXISTS review_sets(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    qids TEXT DEFAULT '[]',
+    created_at INTEGER
+  );
 `);
 
-/* ---------- 轻量迁移：老库补新列（CREATE TABLE IF NOT EXISTS 不会改已有表） ---------- */
-function ensureColumn(table, column, ddl) {
-  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
-  if (!cols.includes(column)) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  /* ---------- 轻量迁移：老库补新列（CREATE TABLE IF NOT EXISTS 不会改已有表） ---------- */
+  function ensureColumn(table, column, ddl) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+    if (!cols.includes(column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+    }
   }
+  ensureColumn("todos", "subtasks", "TEXT DEFAULT '[]'");
+  ensureColumn("todos", "tags", "TEXT DEFAULT '[]'");
+  ensureColumn("todos", "note", "TEXT DEFAULT ''");
+  ensureColumn("todos", "remind", "TEXT DEFAULT ''");
+  ensureColumn("goals", "status", "TEXT DEFAULT 'active'");
+  ensureColumn("goals", "linked_todos", "TEXT DEFAULT '[]'");
+  ensureColumn("goals", "milestones", "TEXT DEFAULT '[]'");
+  ensureColumn("goals", "note", "TEXT DEFAULT ''");
+  ensureColumn("daily_reviews", "stats", "TEXT DEFAULT '{}'");
+  ensureColumn("questions", "imgs", "TEXT DEFAULT '[]'");
+  /* 健康模块移除：老库直接删除健康表 */
+  db.exec("DROP TABLE IF EXISTS health_logs;");
 }
-ensureColumn("todos", "subtasks", "TEXT DEFAULT '[]'");
-ensureColumn("todos", "tags", "TEXT DEFAULT '[]'");
-ensureColumn("todos", "note", "TEXT DEFAULT ''");
-ensureColumn("todos", "remind", "TEXT DEFAULT ''");
-ensureColumn("goals", "status", "TEXT DEFAULT 'active'");
-ensureColumn("goals", "linked_todos", "TEXT DEFAULT '[]'");
-ensureColumn("goals", "milestones", "TEXT DEFAULT '[]'");
-ensureColumn("goals", "note", "TEXT DEFAULT ''");
-ensureColumn("daily_reviews", "stats", "TEXT DEFAULT '{}'");
-ensureColumn("questions", "imgs", "TEXT DEFAULT '[]'");
-/* 健康模块移除：老库直接删除健康表 */
-db.exec("DROP TABLE IF EXISTS health_logs;");
+initDb();
 
 /* ---------- 账号与会话（cookie 登录） ---------- */
 function hashPassword(pw) {
@@ -311,6 +324,11 @@ function readBookmarks() {
       tags: JSON.parse(r.tags || "[]"), createdAt: r.created_at }));
 }
 
+function readReviewSets() {
+  return db.prepare("SELECT id, name, qids, created_at FROM review_sets ORDER BY id").all()
+    .map(r => ({ id: r.id, name: r.name, qids: JSON.parse(r.qids || "[]"), createdAt: r.created_at }));
+}
+
 function readPersonal() {
   const s = readSettings();
   return {
@@ -333,8 +351,12 @@ function getDb() {
     tree: flattenTree(),
     study: readStudy(),
     remindOn: s.remindOn !== "false",
+    theme: s.theme === "dark" ? "dark" : "light",
+    remindDate: s.remindDate || "",
+    reviewResume: (() => { try { return JSON.parse(s.reviewResume || "null"); } catch (e) { return null; } })(),
     reviewCfg: JSON.parse(s.reviewCfg || '{"sub":"all","chapter":"","lv":"all","num":3}'),
     personal: readPersonal(),
+    reviewSets: readReviewSets(),
     qidSeq: Math.max(100, ...questions.map(q => q.id || 0)),
     reviewSeq: reviewLogs.length || 0
   };
@@ -343,7 +365,7 @@ function getDb() {
 function saveDb(data) {
   db.exec("BEGIN");
   try {
-    db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks;");
+    db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks; DELETE FROM review_sets;");
     const insQ = db.prepare(`INSERT INTO questions
       (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
        wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate, imgs)
@@ -373,6 +395,9 @@ function saveDb(data) {
     insS.run("reviewCfg", JSON.stringify(data.reviewCfg || { sub: "all", chapter: "", lv: "all", num: 3 }));
     insS.run("study_seconds", String((data.study && data.study.seconds) || 0));
     insS.run("blur_prompt", String(!!(data.study && data.study.blurPrompt)));
+    insS.run("theme", data.theme === "dark" ? "dark" : "light");
+    insS.run("remindDate", data.remindDate || "");
+    insS.run("reviewResume", JSON.stringify(data.reviewResume || null));
     const insD = db.prepare("INSERT INTO study_days(day, seconds) VALUES (?,?)");
     Object.entries((data.study && data.study.perDay) || {}).forEach(([day, sec]) => insD.run(day, sec));
     const p = data.personal || {};
@@ -396,6 +421,9 @@ function saveDb(data) {
     (p.bookmarks || []).forEach(b => insB.run(b.id, String(b.title || "").slice(0, 200), b.kind || "link",
       String(b.url || "").slice(0, 2000), String(b.note || "").slice(0, 1000),
       JSON.stringify(b.tags || []), b.createdAt || Date.now()));
+    const insRS = db.prepare("INSERT INTO review_sets(id, name, qids, created_at) VALUES (?,?,?,?)");
+    (data.reviewSets || []).forEach(rs => insRS.run(rs.id, String(rs.name || "").slice(0, 100),
+      JSON.stringify(rs.qids || []), rs.createdAt || Date.now()));
     db.exec("COMMIT");
     return { ok: true };
   } catch (e) {
@@ -758,6 +786,9 @@ const server = http.createServer(async (req, res) => {
         writeQueue = writeQueue.then(() => {
           if (typeof body.remindOn === "boolean") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('remindOn', ?)").run(String(body.remindOn));
           if (body.reviewCfg && typeof body.reviewCfg === "object") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('reviewCfg', ?)").run(JSON.stringify(body.reviewCfg));
+          if (body.theme && typeof body.theme === "string") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('theme', ?)").run(body.theme);
+          if (body.reviewResume !== undefined) db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('reviewResume', ?)").run(JSON.stringify(body.reviewResume));
+          if (body.remindDate && typeof body.remindDate === "string") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('remindDate', ?)").run(body.remindDate);
         });
         await writeQueue;
         sendJson(res, 200, { ok: true });
@@ -917,10 +948,38 @@ const server = http.createServer(async (req, res) => {
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
     }
+    if (p === "/api/review-sets" && req.method === "GET") { sendJson(res, 200, { data: readReviewSets() }); return; }
+    if (p === "/api/review-sets" && req.method === "POST") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO review_sets(id, name, qids, created_at) VALUES (?,?,?,?)`)
+          .run(b.id ?? null, String(b.name || "").slice(0, 100), JSON.stringify(b.qids || []), b.createdAt || Date.now()));
+        await writeQueue;
+        sendJson(res, 200, { ok: true, id: b.id });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    const rsM = p.match(/^\/api\/review-sets\/(\d+)$/);
+    if (rsM && req.method === "PUT") {
+      try {
+        const b = await readBody(req);
+        writeQueue = writeQueue.then(() => db.prepare(`UPDATE review_sets SET name=?, qids=? WHERE id=?`)
+          .run(String(b.name || "").slice(0, 100), JSON.stringify(b.qids || []), Number(rsM[1])));
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
+    if (rsM && req.method === "DELETE") {
+      writeQueue = writeQueue.then(() => db.prepare("DELETE FROM review_sets WHERE id = ?").run(Number(rsM[1])));
+      await writeQueue;
+      sendJson(res, 200, { ok: true });
+      return;
+    }
     if (p === "/api/reset" && req.method === "POST") {
       try {
         writeQueue = writeQueue.then(() => {
-          db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks;");
+          db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks; DELETE FROM review_sets;");
           seedIfEmpty();
         });
         await writeQueue;
@@ -941,6 +1000,29 @@ const server = http.createServer(async (req, res) => {
         });
         res.end(buf);
       } catch (e) { sendJson(res, 500, { code: 50000, message: "备份失败：" + e.message }); }
+      return;
+    }
+    if (p === "/api/restore" && req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const buf = Buffer.from(String(body.dataUrl || "").split(",")[1] || "", "base64");
+        if (!buf.length) return sendJson(res, 400, { code: 40001, message: "备份文件数据为空" });
+        if (buf.slice(0, 15).toString("latin1") !== "SQLite format 3") {
+          return sendJson(res, 400, { code: 40002, message: "不是有效的 SQLite 备份文件" });
+        }
+        // 恢复前先把当前库备份到 backups/（安全网）
+        const pre = path.join(ROOT, "backups", `pre-restore-${Date.now()}.db`);
+        try { fs.mkdirSync(path.join(ROOT, "backups"), { recursive: true }); db.exec(`VACUUM INTO '${pre.replace(/'/g, "''")}'`); }
+        catch (e) { console.warn("恢复前自备份失败（可忽略）：", e.message); }
+        writeQueue = writeQueue.then(() => {
+          db.close();
+          fs.writeFileSync(DB_FILE, buf);
+          db = new DatabaseSync(DB_FILE);
+          initDb();
+        });
+        await writeQueue;
+        sendJson(res, 200, { ok: true });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: "恢复失败：" + e.message }); }
       return;
     }
     if (p === "/api/question-image" && req.method === "POST") {
@@ -1099,8 +1181,17 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
+  const dbSize = fs.existsSync(DB_FILE) ? Math.max(1, Math.round(fs.statSync(DB_FILE).size / 1024)) : 0;
+  const upDir = path.join(ROOT, "uploads");
+  const upCount = fs.existsSync(upDir) ? fs.readdirSync(upDir).filter(f => !fs.statSync(path.join(upDir, f)).isDirectory()).length : 0;
+  const qCount = db.prepare("SELECT COUNT(*) AS n FROM questions").get().n;
+  const uCount = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
+  console.log("==============================================");
   console.log(`个人工作台本地服务已启动：http://127.0.0.1:${PORT}`);
-  console.log(`数据库：${DB_FILE}（SQLite）`);
+  console.log(`版本：v1.15.0 · Node ${process.versions.node}`);
+  console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
+  console.log(`备份：backups/ 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
   console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);
   console.log("按 Ctrl+C 停止服务");
+  console.log("==============================================");
 });

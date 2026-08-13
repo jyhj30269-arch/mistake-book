@@ -22,7 +22,7 @@ const server = spawn("node", ["server.js"], {
   env: { ...process.env, PORT: String(PORT), DB_FILE: dbFile, MINERU_DISABLE: "1" },
   stdio: "ignore"
 });
-await sleep(1200);
+await sleep(2000);
 
 async function getWsUrl(port) {
   for (let i = 0; i < 40; i++) {
