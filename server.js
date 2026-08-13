@@ -1,7 +1,10 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.13.2）
+   个人工作台 · 本地服务（v1.13.3）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.13.3：修复畸形 URL 导致服务崩溃；除登录相关与试卷 HTML（随机 token 保护）
+   外的所有 API 强制 Cookie 会话鉴权；移除 CORS 通配；静态文件禁止下载
+   数据库与 .git；过期会话定期清理。
    ============================================================ */
 const http = require("node:http");
 const path = require("node:path");
@@ -391,7 +394,7 @@ const MIME = {
 };
 
 function sendJson(res, code, obj) {
-  res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+  res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(obj));
 }
 
@@ -559,15 +562,36 @@ setInterval(() => {
   }
 }, 10 * 60000);
 
+/* 过期会话定期清理（每小时一次） */
+setInterval(() => {
+  try { db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(Date.now()); }
+  catch (e) { /* 忽略清理失败 */ }
+}, 3600000);
+
 /* ---------- HTTP 路由 ---------- */
 let writeQueue = Promise.resolve();
+
+/* 会话鉴权：除登录/注册/会话查询/试卷 HTML（随机 token 保护）外，所有 API 必须已登录 */
+function requireSession(req, res) {
+  const user = getUserByCookie(req);
+  if (!user) { sendJson(res, 401, { code: 40100, message: "未登录" }); return null; }
+  return user;
+}
+
 const server = http.createServer(async (req, res) => {
+  try {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const p = url.pathname;
 
   // API
   if (p.startsWith("/api/")) {
-    if (req.method === "OPTIONS") { res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,Authorization" }); res.end(); return; }
+    if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
+    // 公开路径白名单（无头浏览器打印 PDF 时无 Cookie，靠随机 token 保护）
+    const publicPath =
+      p === "/api/auth/login" || p === "/api/auth/register" ||
+      p === "/api/auth/me" || p === "/api/auth/logout" ||
+      p === "/api/paper/html";
+    if (!publicPath && !requireSession(req, res)) return;
     // 账号与会话
     if (p === "/api/auth/register" && req.method === "POST") {
       try {
@@ -778,19 +802,31 @@ const server = http.createServer(async (req, res) => {
   }
 
   // 静态文件
-  const rel = p === "/" ? "index.html" : decodeURIComponent(p).replace(/^\/+/, "");
+  let rel;
+  try { rel = p === "/" ? "index.html" : decodeURIComponent(p).replace(/^\/+/, ""); }
+  catch (e) { sendJson(res, 400, { code: 40000, message: "URL 编码无效" }); return; }
+  // 禁止下载敏感文件：.git 目录、SQLite 数据库、node_modules
+  const lower = rel.toLowerCase();
+  if (/(^|\/)\.git(\/|$)/.test(lower) || /\.db(-wal|-shm)?$/.test(lower) || /(^|\/)node_modules(\/|$)/.test(lower)) {
+    sendJson(res, 403, { code: 40300, message: "禁止访问" });
+    return;
+  }
   const file = path.normalize(path.join(ROOT, rel));
   if (!file.startsWith(ROOT)) { sendJson(res, 403, { code: 40300, message: "禁止访问" }); return; }
   fs.readFile(file, (err, buf) => {
     if (err) {
-      if (file === path.join(ROOT, "index.html")) res.writeHead(404).end("404");
-      else res.writeHead(404).end("404");
+      res.writeHead(404).end("404");
       return;
     }
     const ext = path.extname(file).toLowerCase();
     res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });
     res.end(buf);
   });
+  } catch (e) {
+    console.error("请求处理异常：", e);
+    if (res.headersSent) { res.destroy(); return; }
+    sendJson(res, 500, { code: 50000, message: "服务内部错误" });
+  }
 });
 
 server.listen(PORT, "127.0.0.1", () => {

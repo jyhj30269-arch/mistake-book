@@ -1,18 +1,18 @@
 /* ============================================================
-   个人工作台 · API 服务层（前后端接口契约 v1.13.2）
+   个人工作台 · API 服务层（前后端接口契约 v1.13.3）
    ------------------------------------------------------------
    本文件是前后端的唯一接口契约。业务代码只通过 window.API 访问
    OCR / 数据 / 去重，不直接读写 localStorage 或 fetch。
 
    阶段：
-   Phase A（当前）mode = "local"
-     数据存本机浏览器 localStorage，OCR 为模拟实现，用于本机功能测试。
+   Phase C（当前）mode = "remote" + 本地 SQLite 服务（server.js）
+     数据存本机 SQLite（mistake-book.db），OCR 由服务端调用
+     MinerU CLI（MINERU_DISABLE=1 时走模拟）。
    Phase B        mode = "remote"
      后端按本契约实现同一批方法，前端只需把 mode 改为 "remote"、
      填入 base 地址，业务代码零改动。
-   Phase C        云端部署 + MinerU
-     后端 ocrRecognize / ocrStatus 内部对接 MinerU 官方 API，
-     前端契约不变。
+   Phase A        mode = "local"
+     localStorage + 模拟 OCR，仅用于旧版功能测试。
 
    后端实现要求：
    1. 方法签名、入参、返回值与本文件保持一致；

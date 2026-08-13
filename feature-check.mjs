@@ -126,7 +126,12 @@ try {
   await sleep(400);
   const edited = await evalJS(`questions.find(q => q.id === 1).titleTex.includes("已编辑")`);
   check("编辑后题面已更新", edited);
-  const dbCheck = await (await fetch(`http://127.0.0.1:${PORT}/api/db`)).json();
+  const dbCheck = await (await fetch(`http://127.0.0.1:${PORT}/api/db`, {
+    headers: { Cookie: (await (await fetch(`http://127.0.0.1:${PORT}/api/auth/login`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "admin123" })
+    })).headers.get("set-cookie") || "").split(";")[0] }
+  })).json();
   check("编辑已写入 SQLite", dbCheck.questions.find(q => q.id === 1).titleTex.includes("已编辑"));
 
   // 5) 知识点管理按钮

@@ -118,7 +118,13 @@ try {
   await client.eval(`saveCurrentQuestion()`);
   await sleep(400);
   check("单题：保存后入库 16 题", await client.eval(`questions.length === 16`));
-  const dbAfterSave = await (await fetch(`http://127.0.0.1:${PORT}/api/db`)).json();
+  // Node 侧直连 API 需带会话 Cookie（v1.13.3 起 /api 强制鉴权）
+  const loginRes = await fetch(`http://127.0.0.1:${PORT}/api/auth/login`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "admin123" })
+  });
+  const cookie = (loginRes.headers.get("set-cookie") || "").split(";")[0];
+  const dbAfterSave = await (await fetch(`http://127.0.0.1:${PORT}/api/db`, { headers: { Cookie: cookie } })).json();
   check("单题：已写入 SQLite", dbAfterSave.questions.length === 16);
 
   // 5) 批量：回到录入页，注入 3 张（2 题 + 1 解题）

@@ -1,6 +1,6 @@
 # 考研错题本 · 前端 API 接口契约
 
-> 版本：v1.13.2 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
+> 版本：v1.13.3 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
 >
 > 本文件与 `../api.js` 一一对应。后端接入时按此契约实现同名方法即可，前端业务代码无需改动。
 
@@ -15,7 +15,7 @@
 - 所有方法返回 Promise；远端实现用 `fetch`，错误统一返回 `{ code, message, detail }`。
 - 错误码分段：`400xx` 参数错误、`401xx` 认证失败、`404xx` 不存在、`409xx` 冲突、`500xx` 服务端、`502xx` 第三方（MinerU）、`503xx` 限流/额度。
 - 涉及 MinerU Token 的逻辑只允许在后端，前端永远不接触密钥。
-- 单用户系统，认证暂为占位（本地阶段跳过）；后端可自行启用登录后，前端在请求头携带 Authorization。
+- 单用户系统；v1.13.3 起本地服务**强制 Cookie 会话鉴权**：除 `auth/login`、`auth/register`、`auth/me`、`auth/logout` 与 `paper/html`（无头浏览器打印，靠随机 token 保护）外，所有 `/api/*` 接口必须携带有效 `mb_session` Cookie，否则返回 `40100`。云端后端可自行选择 Authorization 头方案。
 
 ## 三、方法清单
 

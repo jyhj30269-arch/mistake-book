@@ -1,6 +1,7 @@
 /* ============================================================
-   个人工作台 · 业务逻辑 v1.13.2
-   版本：v1.13.2（修复：批量归类全链路、知识点导航筛选生效、横向树布局、补齐 questions/ocr-status 接口）
+   个人工作台 · 业务逻辑 v1.13.3
+   版本：v1.13.3（修复：服务端 API 强制登录鉴权、畸形 URL 崩溃、
+   移除 CORS 通配、静态文件禁止下载数据库/.git；登录成功后才加载数据）
    实现范围：单题与批量合一识别录入 / 仪表盘一体化（顶部指标+推荐+随机复习+数据统计）/
    仪表盘总览（问候/概览卡/快捷入口/目标进度/今日待办/最近动态）/
    今日待办（子任务/优先级/标签/提醒/列表看板/快速添加解析）/
@@ -106,7 +107,7 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.13.2";
+const APP_VERSION = "1.13.3";
 
 const TREE = [
   {
@@ -355,6 +356,9 @@ async function doLogin() {
     if (loginMode === "register") await API.authRegister(u, p);
     else await API.authLogin(u, p);
     window.__currentUser = u;
+    // 登录成功后才加载数据（服务端 API 已强制会话鉴权）
+    const ok = await loadLocal();
+    if (!ok) { seed(); persistLocal(); }
     enterApp();
     toast(`欢迎，${u}`, "success");
   } catch (e) {
@@ -3889,13 +3893,13 @@ function doResetDemo() {
 
 /* ---------------- 初始化 ---------------- */
 (async () => {
-  const ok = await loadLocal();
-  if (!ok) { seed(); persistLocal(); }
   applyTexView();
-  // 登录态检查（cookie 会话）
+  // 登录态检查（cookie 会话）→ 登录成功后才加载数据（服务端 API 已强制鉴权）
   const user = await API.authMe().catch(() => null);
   if (user) {
     window.__currentUser = user;
+    const ok = await loadLocal();
+    if (!ok) { seed(); persistLocal(); }
     enterApp();
   } else {
     $("#view-app").style.display = "none";
