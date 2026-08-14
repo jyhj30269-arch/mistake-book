@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.20.0 · 12-boot.js（由 app.js 拆分）
+   个人工作台 v1.21.0 · 12-boot.js（由 app.js 拆分）
    初始化入口、window 暴露、跨标签同步、?auto=1
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -53,7 +53,7 @@ async function doResetDemo() {
   applyModuleVisibility();
   // ③ 复习卡键盘快捷键（做题时）：空格/回车翻答案 · 1/2/3/4 自评 · S 跳过 · ←/→ 切题
   document.addEventListener("keydown", (e) => {
-    if (currentView !== "dashboard") return;
+    if (currentView !== "dashboard" && currentView !== "wordbook") return;
     const t = e.target;
     const tag = (t && t.tagName) || "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;

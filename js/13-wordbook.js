@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.20.0 · 13-wordbook.js（v1.20 对标不背单词升级）
+   个人工作台 v1.21.0 · 13-wordbook.js（v1.20 对标不背单词升级，v1.21 独立成侧边栏页面）
    背单词模式：例句语境学习 / 单词详情（英释·同根·近义·双音标）/
    四种学习模式（快捷 / 看词选义 / 看义选词 / 听写）/
    每日队列（到期复习优先 + 新词补足）/ 错误回炉 / 三档统计
@@ -19,7 +19,8 @@ function wordProgress() {
   const list = wordQuestions();
   const last = {};
   reviewLogs.forEach(l => { if (list.some(q => q.id === l.qid)) last[l.qid] = l.result; });
-  const stat = { know: 0, fuzzy: 0, miss: 0, total: list.length, learned: Object.keys(last).length, due: list.filter(q => isDue(q.id)).length };
+  // 今日到期只统计「已学过且已到期」的词（未复习的新词不算到期，避免刚导入就显示全部到期）
+  const stat = { know: 0, fuzzy: 0, miss: 0, total: list.length, learned: Object.keys(last).length, due: list.filter(q => logsOf(q.id).length > 0 && isDue(q.id)).length };
   Object.values(last).forEach(r => {
     if (r === "ok") stat.know++;
     else if (r === "half") stat.fuzzy++;
@@ -182,15 +183,27 @@ const WORD_MODES = [
   { key: "dictation", name: "✍️ 听写", desc: "听发音 · 拼写单词" }
 ];
 
+/* ---------- 独立页面入口（v1.21：侧边栏「🎴 背单词」） ---------- */
+function openWordbook() {
+  go("wordbook"); // go() 内会 renderWordPanel + showWordConfig
+}
+function showWordConfig() {
+  const cfg = $("#word-config"), play = $("#word-play"), done = $("#word-done");
+  if (cfg) cfg.style.display = "";
+  if (play) play.style.display = "none";
+  if (done) done.style.display = "none";
+}
+
 /* 队列 = 到期复习词（SM-2，仅已有记录的词）→ 新词补足每日上限 */
 function startWordReview() {
   const list = wordQuestions();
-  if (!list.length) { toast("词书还是空的：先在设置页导入六级核心词 3000", "error"); return; }
+  if (!list.length) { toast("词书还是空的：去 设置 → 📚 背单词 导入六级核心词 3000，或批量粘贴自定义词表", "error"); return; }
   const due = list.filter(q => logsOf(q.id).length > 0 && isDue(q.id)).sort((a, b) => scheduleOf(a.id).dueAt - scheduleOf(b.id).dueAt);
   const fresh = list.filter(q => logsOf(q.id).length === 0).sort((a, b) => a.createdAt - b.createdAt);
   const newLimit = Math.max(1, (wordPlan && wordPlan.newPerDay) || 50);
   const freshTake = fresh.slice(0, newLimit);
   if (!due.length && !freshTake.length) { toast("今日单词已全部完成 🎉 明天再来", "success"); return; }
+  if (currentView !== "wordbook") go("wordbook");
   wordMode = (wordPlan && wordPlan.mode) || "quick";
   wordQueue = [...due, ...freshTake].map(q => ({ q, misses: 0 }));
   wordIdx = 0;
@@ -243,6 +256,11 @@ function renderWordCard() {
   // 选词模式：显示释义 + 4 个单词选项
   if (wordMode === "word") {
     const correct = q.titleTex;
+    // 清除上一词翻卡残留（大字/例句/详情）
+    $("#word-word-big").textContent = "";
+    $("#word-example").innerHTML = "";
+    $("#word-detail").innerHTML = "";
+    $("#word-detail").style.display = "none";
     $("#word-back").style.display = "";
     $("#word-mean-text").innerHTML = `<div class="katex-render" data-tex="${esc(q.solutionTex.replace(/\s*［.*］$/, "").trim())}"></div>`;
     renderMath($("#word-mean-text"));
@@ -382,10 +400,8 @@ function finishWordSession() {
 
 function wordExit() {
   wordSession = false;
-  $("#word-play").style.display = "none";
-  $("#word-config").style.display = "";
   renderWordPanel();
-  go("dashboard");
+  showWordConfig();
 }
 
 /* 发音（当前单词卡 / 听写） */
@@ -400,23 +416,34 @@ function speakWord() {
   speechSynthesis.speak(u);
 }
 
-/* ---------- 面板渲染（入口卡 + 词书状态 + 模式选择） ---------- */
+/* ---------- 面板渲染（词书状态 + 模式选择） ---------- */
 function renderWordPanel() {
   const p = wordProgress();
   const cfg = $("#word-config");
+  const tag = $("#word-page-tag");
+  if (tag) tag.textContent = p.total ? `已学 ${p.learned}/${p.total} · 今日到期 ${p.due}` : "词书未导入";
   if (cfg) {
     const fresh = wordQuestions().filter(q => logsOf(q.id).length === 0).length;
     const limit = (wordPlan && wordPlan.newPerDay) || 50;
     const curMode = (wordPlan && wordPlan.mode) || "quick";
+    const todayNew = Math.min(limit, fresh); // 今日实际可取的新词数（未学词不足上限时如实显示）
     cfg.innerHTML = `
       <div class="card-head"><div class="card-title">🎴 背单词</div><span class="tag">六级核心词 3000</span></div>
       <div class="flex-between">
-        <div class="small muted">已学 <b>${p.learned}</b> / ${p.total} 词 · 今日到期 <b>${p.due}</b> 词 · ✅${p.know} 🟡${p.fuzzy} ❌${p.miss} · 今日新词剩 ${Math.max(0, limit - fresh)}/${limit} 上限</div>
+        <div class="small muted">已学 <b>${p.learned}</b> / ${p.total} 词 · 今日到期 <b>${p.due}</b> 词 · ✅${p.know} 🟡${p.fuzzy} ❌${p.miss} · 今日新词 <b>${todayNew}</b>/${limit}</div>
         <div class="flex" style="gap:8px;">
           <button class="btn btn-primary btn-lg" onclick="startWordReview()">开始背单词</button>
-          <button class="btn btn-lg" onclick="wordExit()">关闭</button>
+          <button class="btn btn-lg" onclick="go('dashboard')">返回仪表盘</button>
         </div>
       </div>
+      ${p.total === 0 ? `
+        <div class="alert alert-warn mt-8">
+          词书为空。点「⬇ 一键导入词书」导入内置六级核心词 3000（含释义/例句/音标/近义词/同根词），或「📋 批量粘贴导入」自己的词表：
+          <div class="flex mt-8" style="gap:8px;">
+            <button class="btn btn-sm" onclick="importBuiltinWordbook()">⬇ 一键导入词书</button>
+            <button class="btn btn-sm" onclick="openPasteWords()">📋 批量粘贴导入</button>
+          </div>
+        </div>` : ""}
       <div class="divider mt-8"></div>
       <div class="field mt-8">
         <label>学习模式</label>
@@ -447,6 +474,7 @@ function saveWordPlan() {
 }
 
 /* window 暴露 */
+window.openWordbook = openWordbook;
 window.startWordReview = startWordReview;
 window.flipWord = flipWord;
 window.wordRate = wordRate;

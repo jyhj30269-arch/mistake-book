@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.20.0 · 09-personal.js（由 app.js 拆分）
+   个人工作台 v1.21.0 · 09-personal.js（由 app.js 拆分）
    个人管理（待办/目标/复盘/收件箱/日历/周月总结/学情周报）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -1078,8 +1078,9 @@ function calDayInfo(dateStr) {
   const goals = personal.goals.filter(g => g.targetDate === dateStr);
   const rv = personal.reviews.find(r => r.day === dateStr);
   const studyMin = Math.floor((study.perDay[dateStr] || 0) / 60);
-  // ② 到期分布：scheduleOf 的 dueAt 落在该天的题目数（未复习题算"今天到期"）
+  // ② 到期分布：scheduleOf 的 dueAt 落在该天的题目数（未复习题算"今天到期"；词汇类不计——走背单词页）
   const dueCount = questions.filter(q => {
+    if (q.type === "vocabulary") return false;
     if (displayMastery(q.id).lv.key === "blue") return false;
     const s = scheduleOf(q.id);
     return s.lastAt ? fmtDate(s.dueAt) === dateStr : dateStr === fmtDate(Date.now());

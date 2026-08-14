@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.20.0 · 08-review.js（由 app.js 拆分）
+   个人工作台 v1.21.0 · 08-review.js（由 app.js 拆分）
    复习（配置/抽题/做题/自评/断点/默写/回忆错因/复习集）+ 数据统计图表（含热力图）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -149,8 +149,9 @@ function startReviewWith(n, presetList) {
     showReviewCard();
     return;
   }
-  // 候选筛选
+  // 候选筛选（vocabulary 单词不走错题抽题，由「🎴 背单词」独立队列负责）
   let pool = questions.filter(q => {
+    if (q.type === "vocabulary") return false;
     if (q.subject !== "subj-math" && q.subject !== "subj-eng" && q.subject !== "subj-408") return false;
     if (reviewCfg.subject && reviewCfg.subject !== "all" && q.subject !== reviewCfg.subject) return false;
     if (reviewCfg.sub && reviewCfg.sub !== "all" && q.subSubject !== reviewCfg.sub) return false;
@@ -525,10 +526,10 @@ function showReviewDone() {
 
 /* ---------------- 统计 ---------------- */
 function renderStats() {
-  // 概览统计行
-  const total = questions.length;
-  const blue = questions.filter(q => displayMastery(q.id).lv.key === "blue").length;
-  const err = questions.filter(q => ERR_TRACK.includes(displayMastery(q.id).lv.key)).length;
+  // 概览统计行（错题统计不含词汇类——单词在背单词页有独立进度）
+  const total = reviewPool().length;
+  const blue = reviewPool().filter(q => displayMastery(q.id).lv.key === "blue").length;
+  const err = reviewPool().filter(q => ERR_TRACK.includes(displayMastery(q.id).lv.key)).length;
   const unmastered = total - blue;
   const studyMin = Math.floor(study.seconds / 60);
   const avg = total ? reviewLogs.length / total : 0;
@@ -548,7 +549,7 @@ function renderStats() {
   const chart = (el) => (el && window.echarts.getInstanceByDom(el)) || window.echarts.init(el);
   const lvData = Object.values(LV).map(lv => ({
     name: lv.icon + " " + lv.name,
-    value: questions.filter(q => displayMastery(q.id).lv.key === lv.key).length
+    value: reviewPool().filter(q => displayMastery(q.id).lv.key === lv.key).length
   })).filter(x => x.value > 0);
   chart(pie).setOption({
     color: ["#862E2E", "#E03131", "#F76707", "#ADB5BD", "#F59F00", "#2F9E44", "#1971C2"],
@@ -557,7 +558,7 @@ function renderStats() {
   });
   const tagData = TAGS.map(t => ({
     name: t.icon + " " + t.name,
-    value: questions.filter(q => q.tags.includes(t.key)).length
+    value: reviewPool().filter(q => q.tags.includes(t.key)).length
   })).filter(x => x.value > 0);
   chart(tagPie).setOption({
     color: ["#4C6EF5", "#F59F00", "#F76707", "#2F9E44", "#E03131", "#ADB5BD"],

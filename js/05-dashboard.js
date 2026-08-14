@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.20.0 · 05-dashboard.js（由 app.js 拆分）
+   个人工作台 v1.21.0 · 05-dashboard.js（由 app.js 拆分）
    仪表盘渲染、推荐算法、今日任务
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -19,8 +19,13 @@ function recScore(q) {
   return overdue * 10 + m.lv.weight * 2 + tagW + (logs.length ? 0 : 5);
 }
 
+/* 推荐 / 到期统计只针对错题（vocabulary 单词走「🎴 背单词」独立队列） */
+function reviewPool() {
+  return questions.filter(q => q.type !== "vocabulary");
+}
+
 function recommendQuestions(n) {
-  return questions
+  return reviewPool()
     .map(q => ({ q, s: recScore(q), due: isDue(q.id) ? 0 : 1 })) // P3：到期题优先
     .sort((a, b) => a.due - b.due || b.s - a.s)
     .slice(0, n)
@@ -34,7 +39,7 @@ function renderDashboard() {
 
   const rec = recommendQuestions(10);
   $("#rec-count").textContent = rec.length;
-  const dueToday = questions.filter(q => isDue(q.id) && displayMastery(q.id).lv.key !== "blue").length;
+  const dueToday = reviewPool().filter(q => isDue(q.id) && displayMastery(q.id).lv.key !== "blue").length;
   const doneToday = reviewLogs.filter(l => fmtDate(l.at) === fmtDate(Date.now())).length;
   $("#rec-desc").textContent = `已按"到期优先 + 掌握度差 + 错因权重"排序，前 ${rec.length} 道；可手动调数量`;
   const taskLine = $("#due-task-line");
@@ -75,7 +80,7 @@ function genTodayPlan() {
 function renderTodayPlan(force) {
   const box = $("#today-plan");
   if (!box) return;
-  const dueToday = questions.filter(q => isDue(q.id) && displayMastery(q.id).lv.key !== "blue");
+  const dueToday = reviewPool().filter(q => isDue(q.id) && displayMastery(q.id).lv.key !== "blue");
   const topWk = weakKps().filter(w => w.err > 0).slice(0, 3);
   const addedToday = questions.filter(q => fmtDate(q.createdAt) === fmtDate(Date.now())).length;
   const streak = currentStreak();
@@ -113,7 +118,7 @@ function reviewWeakNow() {
 
 function weakKps() {
   const map = {};
-  questions.forEach(q => {
+  reviewPool().forEach(q => {
     const lv = displayMastery(q.id).lv;
     const keys = q.kps.length ? q.kps : ["未分类"];
     keys.forEach(k => {
@@ -133,9 +138,9 @@ function startReviewFromRec() {
   startReviewWith(n, window.__rec);
 }
 
-/* 🔥 复习全部到期题（间隔重复队列） */
+/* 🔥 复习全部到期题（间隔重复队列，不含词汇类——单词走背单词页） */
 function reviewDueNow() {
-  const due = questions.filter(q => isDue(q.id) && displayMastery(q.id).lv.key !== "blue");
+  const due = reviewPool().filter(q => isDue(q.id) && displayMastery(q.id).lv.key !== "blue");
   if (!due.length) { toast("今天没有到期的题目 🎉", "success"); return; }
   startReviewWith(due.length, due);
 }

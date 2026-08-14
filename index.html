@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.20.0 -->
+  <!-- 个人工作台 v1.21.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -75,6 +75,7 @@
         <div class="nav-group">学习</div>
         <a class="nav-item" data-view="input"><span class="icon">📸</span>识别录入</a>
         <a class="nav-item" data-view="questions"><span class="icon">🗂</span>题库</a>
+        <a class="nav-item" data-view="wordbook"><span class="icon">🎴</span>背单词</a>
 
         <div class="nav-group">资讯与资料</div>
         <a class="nav-item" data-view="hot"><span class="icon">🔥</span>热点资讯</a>
@@ -170,7 +171,7 @@
               <div class="flex" style="gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-lg" onclick="reviewDueNow()">🔥 复习到期题</button>
                 <button class="btn btn-primary btn-lg" onclick="startReviewFromRec()">开始推荐复习</button>
-                <button class="btn btn-lg" onclick="startWordReview()">🎴 背单词</button>
+                <button class="btn btn-lg" onclick="openWordbook()">🎴 背单词</button>
                 <button class="btn btn-lg" onclick="toggleReviewCfg()">⚙️ 抽题配置</button>
               </div>
             </div>
@@ -286,66 +287,6 @@
                 </div>
               </div>
 
-              <!-- ========== 背单词（v1.19 / v1.20 升级） ========== -->
-              <div class="card review-card mt-16" id="word-config" style="display:none;"></div>
-              <div class="card review-card mt-16" id="word-play" style="display:none;">
-                <div class="flex-between mb-16">
-                  <span class="tag" id="word-pos"></span>
-                  <span class="tag">🎴 背单词</span>
-                </div>
-                <!-- 例句语境（新词猜义） -->
-                <div class="word-context" id="word-context" style="display:none;">
-                  <div class="small muted mb-8">📖 例句语境</div>
-                  <div class="word-context-text" id="word-context-text" style="font-size:19px;line-height:1.8;"></div>
-                  <div class="small muted mt-8" id="word-context-hint"></div>
-                </div>
-                <!-- 单词面（快捷/选义） -->
-                <div class="word-front" id="word-front" style="display:none;">
-                  <div class="word-word" id="word-word"></div>
-                  <div class="small muted" id="word-word-ph"></div>
-                  <button class="btn btn-sm mt-8" onclick="speakWord()">🔊 发音</button>
-                </div>
-                <!-- 释义面（快捷翻卡 / 选词模式题干） -->
-                <div class="word-back" id="word-back" style="display:none;">
-                  <div class="word-word" id="word-word-big" style="font-size:30px;"></div>
-                  <div id="word-mean" style="font-size:17px;"></div>
-                  <div id="word-mean-text" style="font-size:17px;"></div>
-                  <div id="word-example" class="mt-8"></div>
-                  <div id="word-detail"></div>
-                </div>
-                <!-- 四选一（选义/选词模式） -->
-                <div id="word-choices" style="display:none;" class="mt-16">
-                  <div class="grid grid-2" id="word-choice-list" style="gap:8px;"></div>
-                </div>
-                <!-- 听写模式 -->
-                <div id="word-dictation" style="display:none;" class="mt-16">
-                  <div class="small muted mb-8">🔊 听发音，拼写这个单词（大小写不限）：</div>
-                  <div class="flex" style="gap:8px;">
-                    <input class="input" id="word-dict-input" style="flex:1;font-size:18px;" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="if(event.key==='Enter')dictationCheck()" />
-                    <button class="btn btn-primary" onclick="dictationCheck()">判定</button>
-                    <button class="btn" onclick="speakWord()">🔊 再听一次</button>
-                  </div>
-                  <div id="word-dict-answer"></div>
-                </div>
-                <button class="btn btn-lg mt-16" onclick="flipWord()" id="word-show-ans" style="display:none;">翻卡看释义</button>
-                <div class="self-rate mt-16" id="word-rate" style="display:none;">
-                  <button class="rate-btn ok" onclick="wordRate('know')">✅ 认识</button>
-                  <button class="rate-btn" style="border-color:#F59F00;color:#B97700;" onclick="wordRate('fuzzy')">🟡 模糊</button>
-                  <button class="rate-btn no" onclick="wordRate('miss')">❌ 不认识</button>
-                </div>
-                <div class="small muted mt-16">快捷键：空格翻卡 · 1/2/3 自评（选义/选词 1-4）· 听写回车判定 · 错误自动回炉</div>
-                <div class="divider"></div>
-                <button class="btn" onclick="wordExit()">退出背单词</button>
-              </div>
-              <div class="card review-card mt-16" id="word-done" style="display:none;">
-                <div class="card-head"><div class="card-title">🎉 本轮背词完成</div></div>
-                <div id="word-done-stats"></div>
-                <div class="flex mt-16">
-                  <button class="btn btn-primary" onclick="startWordReview()">再背一轮</button>
-                  <button class="btn" onclick="go('dashboard')">回到顶部</button>
-                </div>
-              </div>
-
           <!-- ========== 数据统计（并入仪表盘） ========== -->
           <div class="dash-section-head mt-24" id="dash-stats">
             <div>
@@ -374,6 +315,83 @@
             <div class="card" style="grid-column:1/-1;">
               <div class="card-head"><div class="card-title">🔥 复习热力图（近 12 个月 · 每天学习分钟数）</div><span class="tag tag-primary" id="heatmap-streak"></span></div>
               <div id="stats-heatmap" style="height:180px;"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========== 背单词（v1.21 独立页面） ========== -->
+        <section id="view-wordbook" style="display:none;">
+          <div class="topbar">
+            <div>
+              <div class="page-title">🎴 背单词</div>
+              <div class="page-sub">六级核心词 3000 · 例句语境 · 四种学习模式 · SM-2 间隔重复</div>
+            </div>
+            <div class="topbar-right">
+              <span class="tag tag-primary" id="word-page-tag"></span>
+            </div>
+          </div>
+
+          <!-- 入口面板（词书进度 + 模式选择） -->
+          <div class="card review-card" id="word-config" style="display:none;"></div>
+
+          <!-- 单词卡（例句语境 / 翻卡 / 选义 / 选词 / 听写） -->
+          <div class="card review-card" id="word-play" style="display:none;">
+            <div class="flex-between mb-16">
+              <span class="tag" id="word-pos"></span>
+              <span class="tag">🎴 背单词</span>
+            </div>
+            <!-- 例句语境（新词猜义） -->
+            <div class="word-context" id="word-context" style="display:none;">
+              <div class="small muted mb-8">📖 例句语境</div>
+              <div class="word-context-text" id="word-context-text" style="font-size:19px;line-height:1.8;"></div>
+              <div class="small muted mt-8" id="word-context-hint"></div>
+            </div>
+            <!-- 单词面（快捷/选义） -->
+            <div class="word-front" id="word-front" style="display:none;">
+              <div class="word-word" id="word-word"></div>
+              <div class="small muted" id="word-word-ph"></div>
+              <button class="btn btn-sm mt-8" onclick="speakWord()">🔊 发音</button>
+            </div>
+            <!-- 释义面（快捷翻卡 / 选词模式题干） -->
+            <div class="word-back" id="word-back" style="display:none;">
+              <div class="word-word" id="word-word-big" style="font-size:30px;"></div>
+              <div id="word-mean" style="font-size:17px;"></div>
+              <div id="word-mean-text" style="font-size:17px;"></div>
+              <div id="word-example" class="mt-8"></div>
+              <div id="word-detail"></div>
+            </div>
+            <!-- 四选一（选义/选词模式） -->
+            <div id="word-choices" style="display:none;" class="mt-16">
+              <div class="grid grid-2" id="word-choice-list" style="gap:8px;"></div>
+            </div>
+            <!-- 听写模式 -->
+            <div id="word-dictation" style="display:none;" class="mt-16">
+              <div class="small muted mb-8">🔊 听发音，拼写这个单词（大小写不限）：</div>
+              <div class="flex" style="gap:8px;">
+                <input class="input" id="word-dict-input" style="flex:1;font-size:18px;" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="if(event.key==='Enter')dictationCheck()" />
+                <button class="btn btn-primary" onclick="dictationCheck()">判定</button>
+                <button class="btn" onclick="speakWord()">🔊 再听一次</button>
+              </div>
+              <div id="word-dict-answer"></div>
+            </div>
+            <button class="btn btn-lg mt-16" onclick="flipWord()" id="word-show-ans" style="display:none;">翻卡看释义</button>
+            <div class="self-rate mt-16" id="word-rate" style="display:none;">
+              <button class="rate-btn ok" onclick="wordRate('know')">✅ 认识</button>
+              <button class="rate-btn" style="border-color:#F59F00;color:#B97700;" onclick="wordRate('fuzzy')">🟡 模糊</button>
+              <button class="rate-btn no" onclick="wordRate('miss')">❌ 不认识</button>
+            </div>
+            <div class="small muted mt-16">快捷键：空格翻卡 · 1/2/3 自评（选义/选词 1-4）· 听写回车判定 · 错误自动回炉</div>
+            <div class="divider"></div>
+            <button class="btn" onclick="wordExit()">退出背单词</button>
+          </div>
+
+          <!-- 本轮小结 -->
+          <div class="card review-card" id="word-done" style="display:none;">
+            <div class="card-head"><div class="card-title">🎉 本轮背词完成</div></div>
+            <div id="word-done-stats"></div>
+            <div class="flex mt-16">
+              <button class="btn btn-primary" onclick="startWordReview()">再背一轮</button>
+              <button class="btn" onclick="openWordbook()">返回词书</button>
             </div>
           </div>
         </section>
@@ -715,6 +733,7 @@
                 <div class="small muted">一键导入内置六级高频词 3000（含释义/例句/音标），或粘贴自己的词表</div>
               </div>
               <div class="flex" style="gap:8px;flex-wrap:wrap;">
+                <button class="btn" onclick="openWordbook()">🎴 去背单词</button>
                 <button class="btn" onclick="importBuiltinWordbook()">⬇ 一键导入词书</button>
                 <button class="btn" onclick="openPasteWords()">📋 批量粘贴导入</button>
               </div>
@@ -1062,6 +1081,7 @@
         <div class="nav-group">学习</div>
         <a class="nav-item" data-view="input"><span class="icon">📸</span>识别录入</a>
         <a class="nav-item" data-view="questions"><span class="icon">🗂</span>题库</a>
+        <a class="nav-item" data-view="wordbook"><span class="icon">🎴</span>背单词</a>
         <div class="nav-group">资讯与资料</div>
         <a class="nav-item" data-view="hot"><span class="icon">🔥</span>热点资讯</a>
         <a class="nav-item" data-view="bookmarks"><span class="icon">🔖</span>收藏夹</a>

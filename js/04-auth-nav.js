@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.20.0 · 04-auth-nav.js（由 app.js 拆分）
+   个人工作台 v1.21.0 · 04-auth-nav.js（由 app.js 拆分）
    导航 / 登录注册 / 主题 / 移动抽屉
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -24,6 +24,7 @@ function go(view) {
   if (view === "calendar") renderCalendar();
   if (view === "hot") renderHot();
   if (view === "bookmarks") renderBookmarks();
+  if (view === "wordbook") { renderWordPanel(); showWordConfig(); }
   window.scrollTo(0, 0);
 }
 
