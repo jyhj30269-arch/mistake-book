@@ -1,8 +1,8 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.18.1）
+   个人工作台 · 本地服务（v1.18.2）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
-   v1.18.1：考研倒计时与冲刺 / 每日习惯打卡 / OCR 异步化（任务队列+轮询）/
+   v1.18.2：考研倒计时与冲刺 / 每日习惯打卡 / OCR 异步化（任务队列+轮询）/
    日历到期角标 / 键盘快捷键 / 词汇 TTS / 遗忘曲线 / 批量删除导出 /
    试卷难度配比 / 学情周报导出 / 模块开关 / 测试基建与 API 直测。
    v1.17.0：前端业务逻辑拆分为 js/01-core ~ js/12-boot（经典 script 顺序加载）。
@@ -316,6 +316,8 @@ function readStudy() {
   return {
     seconds: Number(s.study_seconds || 0),
     blurPrompt: s.blur_prompt === "true",
+    awayPolicy: ["auto", "always", "never"].includes(s.away_policy) ? s.away_policy : "auto",
+    awayThresholdMin: Number(s.away_threshold_min) > 0 ? Number(s.away_threshold_min) : 5,
     perDay: days
   };
 }
@@ -440,6 +442,8 @@ function saveDb(data) {
     insS.run("reviewResume", JSON.stringify(data.reviewResume || null));
     insS.run("examDate", data.examDate || "");
     insS.run("module_on", JSON.stringify(data.moduleOn || {}));
+    insS.run("away_policy", (data.study && ["auto", "always", "never"].includes(data.study.awayPolicy)) ? data.study.awayPolicy : "auto");
+    insS.run("away_threshold_min", String((data.study && data.study.awayThresholdMin) || 5));
     const insD = db.prepare("INSERT INTO study_days(day, seconds) VALUES (?,?)");
     Object.entries((data.study && data.study.perDay) || {}).forEach(([day, sec]) => insD.run(day, sec));
     const p = data.personal || {};
@@ -880,6 +884,8 @@ const server = http.createServer(async (req, res) => {
           if (body.remindDate && typeof body.remindDate === "string") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('remindDate', ?)").run(body.remindDate);
           if (body.examDate && typeof body.examDate === "string") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('examDate', ?)").run(body.examDate);
           if (body.moduleOn && typeof body.moduleOn === "object") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('module_on', ?)").run(JSON.stringify(body.moduleOn));
+          if (body.awayPolicy && ["auto", "always", "never"].includes(body.awayPolicy)) db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('away_policy', ?)").run(body.awayPolicy);
+          if (body.awayThresholdMin && Number(body.awayThresholdMin) > 0) db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('away_threshold_min', ?)").run(String(body.awayThresholdMin));
         });
         await writeQueue;
         sendJson(res, 200, { ok: true });
@@ -1304,7 +1310,7 @@ server.listen(PORT, "127.0.0.1", () => {
   const uCount = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
   console.log("==============================================");
   console.log(`个人工作台本地服务已启动：http://127.0.0.1:${PORT}`);
-  console.log(`版本：v1.18.1 · Node ${process.versions.node}`);
+  console.log(`版本：v1.18.2 · Node ${process.versions.node}`);
   console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
   console.log(`备份：backups/ 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
   console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);

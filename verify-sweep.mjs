@@ -90,17 +90,34 @@ try {
   })()`);
   check("题库渲染/分页/搜索", q.ok);
 
-  // 6) 设置页（OCR 配置 / 考试日期 / 模块开关 / 知识点树）
+  // 6) 设置页（OCR 配置 / 考试日期 / 模块开关 / 知识点树 / 学习计时）
   const settings = await client.evalJS(`(() => {
     try {
       go("settings");
       const hasExam = !!document.getElementById("exam-date");
       const hasMod = !!document.getElementById("mod-hot");
       const treeLen = document.getElementById("settings-tree").textContent.length;
-      return { ok: hasExam && hasMod && treeLen > 100 };
+      const hasAway = !!document.getElementById("away-policy");
+      return { ok: hasExam && hasMod && treeLen > 100 && hasAway };
     } catch (e) { return { ok: false, err: String(e).slice(0, 120) }; }
   })()`);
-  check("设置页（倒计时/模块开关/知识点树）", settings.ok);
+  check("设置页（倒计时/模块开关/知识点树/学习计时）", settings.ok);
+
+  // 6b) 学习计时离开策略（v1.18.2：无弹窗自动处理）
+  const away = await client.evalJS(`(() => {
+    const before = study.awayPolicy;
+    const a1 = applyAwayTime(3 * 60000);   // auto：3 分钟 → 计入
+    const a2 = applyAwayTime(10 * 60000);  // auto：10 分钟 → 不计
+    study.awayPolicy = "never";
+    const a3 = applyAwayTime(60000);       // never → 不计
+    study.awayPolicy = "always";
+    const a4 = applyAwayTime(60000);       // always → 计入 60s
+    study.awayPolicy = before;
+    const ctrl = document.getElementById("away-policy");
+    return { defaultAuto: before === "auto", a1: a1 === 180, a2: a2 === 0, a3: a3 === 0, a4: a4 === 60, ctrlOk: !!ctrl && ctrl.value === "auto" };
+  })()`);
+  check("学习计时：默认自动策略", away.defaultAuto && away.ctrlOk);
+  check("学习计时：≤5 分钟计入 / 超时不记 / never 不记 / always 计入", away.a1 && away.a2 && away.a3 && away.a4);
 
   // 7) 待办/目标/收件箱/复盘交互
   const personal = await client.evalJS(`(() => {

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.18.1 -->
+  <!-- 个人工作台 v1.18.2 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -568,7 +568,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.18.1</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.18.2</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
@@ -643,6 +643,21 @@
                 <div class="small muted">深色模式适合夜间学习（设置自动保存）</div>
               </div>
               <button class="btn" id="theme-switch" onclick="toggleTheme()">切换到深色</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><div class="card-title">⏱ 学习计时</div><span class="tag">离开页面自动处理，不再弹窗</span></div>
+            <div class="flex-between">
+              <div>
+                <div class="small">离开策略</div>
+                <div class="small muted">自动：离开 ≤5 分钟自动计入（查资料/接水不算打断），超过不计；全程静默</div>
+              </div>
+              <select class="select" id="away-policy" style="width:210px;" onchange="saveAwayPolicy(this.value)">
+                <option value="auto">自动（≤5 分钟计入）</option>
+                <option value="always">总是计入离开时间</option>
+                <option value="never">不计入（只算页面可见）</option>
+              </select>
             </div>
           </div>
 

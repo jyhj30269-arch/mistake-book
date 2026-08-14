@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.18.1 · 11-settings.js（由 app.js 拆分）
+   个人工作台 v1.18.2 · 11-settings.js（由 app.js 拆分）
    设置（提醒/主题开关/OCR 配置/知识点管理/导出导入 CSV/备份恢复）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -73,6 +73,8 @@ function renderSettings() {
   const modHot = $("#mod-hot"), modBm = $("#mod-bookmarks");
   if (modHot) modHot.checked = moduleOn.hot !== false;
   if (modBm) modBm.checked = moduleOn.bookmarks !== false;
+  const awayEl = $("#away-policy");
+  if (awayEl) awayEl.value = study.awayPolicy || "auto";
   loadOcrConfig();
   const box = $("#settings-tree");
   box.innerHTML = `
@@ -345,7 +347,7 @@ function exportJSON() {
     questions,
     reviewLogs,
     tree: TREE,
-    study: { seconds: study.seconds, blurPrompt: study.blurPrompt, perDay: study.perDay },
+    study: { seconds: study.seconds, blurPrompt: study.blurPrompt, perDay: study.perDay, awayPolicy: study.awayPolicy, awayThresholdMin: study.awayThresholdMin },
     remindOn,
     theme,
     remindDate,
@@ -652,6 +654,8 @@ function doOverwrite() {
     study.seconds = data.study.seconds || 0;
     study.blurPrompt = !!data.study.blurPrompt;
     study.perDay = data.study.perDay || {};
+    if (["auto", "always", "never"].includes(data.study.awayPolicy)) study.awayPolicy = data.study.awayPolicy;
+    if (Number(data.study.awayThresholdMin) > 0) study.awayThresholdMin = Number(data.study.awayThresholdMin);
   }
   if (typeof data.remindOn === "boolean") remindOn = data.remindOn;
   if (data.reviewCfg) reviewCfg = { subject: "all", sub: "all", chapter: "", lv: "all", num: 3, ...data.reviewCfg };
@@ -674,6 +678,15 @@ function doOverwrite() {
 }
 
 /* ---------------- 考研倒计时 & 模块开关（v1.18） ---------------- */
+/* 学习计时离开策略（v1.18.2）：auto / always / never */
+function saveAwayPolicy(v) {
+  study.awayPolicy = ["auto", "always", "never"].includes(v) ? v : "auto";
+  apiCall(API.saveSettings({ awayPolicy: study.awayPolicy, awayThresholdMin: study.awayThresholdMin }));
+  const el = $("#away-policy");
+  if (el) el.value = study.awayPolicy;
+  toast(study.awayPolicy === "auto" ? "自动策略：离开 ≤5 分钟自动计入" : study.awayPolicy === "always" ? "已设为总是计入离开时间" : "已设为不计入离开时间", "success");
+}
+
 function saveExamDate() {
   examDate = $("#exam-date").value || "";
   apiCall(API.saveSettings({ examDate }));

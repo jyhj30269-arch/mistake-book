@@ -1,6 +1,6 @@
 {
   "name": "mistake-book",
-  "version": "1.18.1",
+  "version": "1.18.2",
   "private": true,
   "description": "个人工作台：错题学习（拍照录入 → OCR → 分类 → 随机复习 → 掌握度评估 → PDF 试卷）+ 个人管理（待办/目标/收件箱/日历/复盘/资讯/收藏）",
   "main": "server.js",

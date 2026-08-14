@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.18.1 · 02-state.js（由 app.js 拆分）
+   个人工作台 v1.18.2 · 02-state.js（由 app.js 拆分）
    全局状态、知识点树、去重、增量写与整库持久化（apiCall / persistLocal / loadLocal）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -132,10 +132,15 @@ function mkQ(o) {
    前端不再内置副本；「重置演示数据」走服务端 /api/reset 重播。 */
 
 /* ---------------- 学习时长 ---------------- */
-const study = { seconds: 0, timer: null, lastBlur: 0, blurPrompt: false, perDay: {} };
+/* 离开策略（v1.18.2，不再弹窗询问）：
+   awayPolicy: "auto"（离开 ≤ awayThresholdMin 分钟自动计入，超过不计）
+              | "always"（离开时间全部计入）| "never"（只计页面可见时间） */
+const study = { seconds: 0, timer: null, lastBlur: 0, blurPrompt: false, perDay: {},
+  awayPolicy: "auto", awayThresholdMin: 5 };
 function studyTick() {
-  // 只在录入 / 仪表盘（含复习）页面计时，避免挂机虚增
+  // 只在录入 / 仪表盘（含复习）页面计时，避免挂机虚增；页面隐藏时不累计（离开时间由 awayPolicy 统一处理）
   if (currentView !== "dashboard" && currentView !== "input") return;
+  if (document.hidden) return;
   study.seconds++;
   const today = fmtDate(Date.now());
   study.perDay[today] = (study.perDay[today] || 0) + 1;
@@ -143,17 +148,32 @@ function studyTick() {
   const d = $("#stats-time"); if (d) d.textContent = m;
   if (study.seconds % 60 === 0) apiCall(API.saveStudy(study.seconds, study.perDay, study.blurPrompt)); // 每分钟增量落盘一次
 }
+
+/* 按离开策略判定是否计入：返回补记的秒数（0 = 不计入） */
+function applyAwayTime(awayMs) {
+  const awaySec = Math.round(awayMs / 1000);
+  if (awaySec <= 0) return 0;
+  const policy = study.awayPolicy || "auto";
+  if (policy === "never") return 0;
+  if (policy === "auto" && awayMs > (study.awayThresholdMin || 5) * 60000) return 0;
+  return awaySec;
+}
+
+/* 离开/回来：按策略静默处理，不再弹窗询问 */
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { study.lastBlur = Date.now(); }
-  else if (study.lastBlur) {
-    const away = Math.round((Date.now() - study.lastBlur) / 1000);
-    study.lastBlur = 0;
-    if (away > 30) {
-      study.blurPrompt = true;
-      openModal("学习时长", `<div class="small">你离开了 <b>${Math.round(away / 60)}</b> 分钟，是否计入学习时长？</div>`,
-        `<button class="btn btn-primary" onclick="closeModal()">计入</button>
-         <button class="btn" onclick="closeModal();study.seconds=Math.max(0,study.seconds-${away});">不计入</button>`);
-    }
+  if (document.hidden) {
+    study.lastBlur = Date.now();
+    return;
+  }
+  if (!study.lastBlur) return;
+  const awayMs = Date.now() - study.lastBlur;
+  study.lastBlur = 0;
+  const add = applyAwayTime(awayMs);
+  if (add > 0) {
+    study.seconds += add;
+    const today = fmtDate(Date.now());
+    study.perDay[today] = (study.perDay[today] || 0) + add;
+    apiCall(API.saveStudy(study.seconds, study.perDay, study.blurPrompt));
   }
 });
 
@@ -173,7 +193,7 @@ function persistLocal() {
     tree: TREE,
     qidSeq,
     reviewSeq,
-    study: { seconds: study.seconds, blurPrompt: study.blurPrompt, perDay: study.perDay },
+    study: { seconds: study.seconds, blurPrompt: study.blurPrompt, perDay: study.perDay, awayPolicy: study.awayPolicy, awayThresholdMin: study.awayThresholdMin },
     remindOn,
     theme,
     remindDate,
@@ -220,6 +240,8 @@ async function loadLocal() {
     study.seconds = d.study.seconds || 0;
     study.blurPrompt = !!d.study.blurPrompt;
     study.perDay = d.study.perDay || {};
+    if (["auto", "always", "never"].includes(d.study.awayPolicy)) study.awayPolicy = d.study.awayPolicy;
+    if (Number(d.study.awayThresholdMin) > 0) study.awayThresholdMin = Number(d.study.awayThresholdMin);
   }
   if (typeof d.remindOn === "boolean") remindOn = d.remindOn;
   if (typeof d.remindDate === "string") remindDate = d.remindDate;

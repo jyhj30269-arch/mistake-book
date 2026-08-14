@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.18.1 · 12-boot.js（由 app.js 拆分）
+   个人工作台 v1.18.2 · 12-boot.js（由 app.js 拆分）
    初始化入口、window 暴露、跨标签同步、?auto=1
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -258,6 +258,7 @@ window.doAddHabit = doAddHabit;
 window.toggleHabit = toggleHabit;
 window.delHabit = delHabit;
 window.exportLearnReport = exportLearnReport;
+window.saveAwayPolicy = saveAwayPolicy;
 
 /* 截图辅助：?auto=1 直接进入指定视图（需已登录） */
 if (location.search.includes("auto=1")) {
