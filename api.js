@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · API 服务层（前后端接口契约 v1.19.0）
+   个人工作台 · API 服务层（前后端接口契约 v1.20.0）
    ------------------------------------------------------------
    本文件是前后端的唯一接口契约。业务代码只通过 window.API 访问
    OCR / 数据 / 去重，不直接读写 localStorage 或 fetch。
@@ -453,6 +453,19 @@
       });
       const j = await res.json().catch(() => null);
       if (!res.ok) throw new Error((j && j.message) || `批量导入失败 ${res.status}`);
+      return j;
+    },
+
+    /** 批量删除题目（重导词书等，单事务） */
+    async deleteQuestionsBatch(ids) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/questions/delete-batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids })
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((j && j.message) || `批量删除失败 ${res.status}`);
       return j;
     },
 

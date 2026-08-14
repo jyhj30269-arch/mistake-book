@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · 前端风格系统 v1.19.0
+   个人工作台 · 前端风格系统 v1.20.0
    设计语言：Notion 风 · 浅色暖白 · 细边框 · 小圆角 · 轻阴影 · 蓝色强调
    ============================================================ */
 
@@ -1240,3 +1240,10 @@ html[data-theme="dark"] .login-card input:-webkit-autofill {
 .word-back { padding: 20px 16px; text-align: center; background: var(--primary-soft); border-radius: var(--radius); }
 .tree-row:hover { background: var(--hover); border-radius: 6px; }
 .tree-row b { font-weight: 600; }
+
+/* ============ v1.20 背单词升级 ============ */
+.word-context { padding: 20px 16px; background: var(--primary-soft); border-radius: var(--radius); }
+.word-context-text { font-style: italic; }
+.word-word-ph { margin-top: 6px; }
+.choice-btn { justify-content: flex-start; text-align: left; white-space: normal; line-height: 1.5; height: auto; padding: 10px 14px; }
+.choice-btn:hover { border-color: var(--primary); color: var(--primary-dark); }

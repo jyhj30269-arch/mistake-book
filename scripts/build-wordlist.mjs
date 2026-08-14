@@ -76,12 +76,24 @@ async function main() {
         const c = w.content && w.content.word && w.content.word.content || {};
         const trs = (c.trans || []).map(x => (x.pos ? x.pos + ". " : "") + clean(x.tranCn || x.tran)).filter(Boolean);
         const sent = (c.sentence && c.sentence.sentences && c.sentence.sentences[0]) || null;
+        // v1.20：英英释义 / 英音 / 近义词 / 同根词
+        const en = (c.trans || []).map(x => clean(x.tranOther)).find(Boolean) || "";
+        const syns = [];
+        (c.syno && c.syno.synos || []).forEach(x => { (x.hwds || []).forEach(h => { if (h.w && !syns.includes(h.w)) syns.push(h.w); }); });
+        const rels = [];
+        (c.relWord && c.relWord.rels || []).forEach(r => { (r.words || []).forEach(wd => {
+          if (wd.hwd && rels.length < 6 && !rels.some(x => x.w === wd.hwd)) rels.push({ pos: r.pos, w: wd.hwd, t: clean(wd.tran) });
+        }); });
         words.push({
           w: clean(w.headWord),
           t: trs.slice(0, 2).join("；"),
+          te: en.slice(0, 160),
           e: sent ? clean(sent.sContent).slice(0, 120) : "",
           ec: sent ? clean(sent.sCn).slice(0, 80) : "",
-          ph: clean(c.usphone || c.ukphone || "")
+          ph: clean(c.usphone || c.ukphone || ""),
+          uk: clean(c.ukphone || ""),
+          syn: syns.slice(0, 5),
+          rel: rels.slice(0, 5)
         });
         n++;
       } catch (e) { /* 跳过坏行 */ }

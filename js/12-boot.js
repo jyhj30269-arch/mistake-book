@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.19.0 · 12-boot.js（由 app.js 拆分）
+   个人工作台 v1.20.0 · 12-boot.js（由 app.js 拆分）
    初始化入口、window 暴露、跨标签同步、?auto=1
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -57,12 +57,20 @@ async function doResetDemo() {
     const t = e.target;
     const tag = (t && t.tagName) || "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
-    // 🎴 背单词快捷键（优先）：空格翻卡 · 1/2/3 自评
+    // 🎴 背单词快捷键（优先）：空格翻卡 · 快捷 1/2/3 自评 · 选义/选词 1-4 · 听写 Ctrl+Enter 判定
     if (wordSession) {
       const wplay = $("#word-play");
       if (!wplay || wplay.style.display === "none") return;
       const back = $("#word-back"), rate = $("#word-rate");
       const backShown = back && back.style.display !== "none";
+      if (wordMode === "dictation") {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); dictationCheck(); }
+        return;
+      }
+      if (wordMode === "meaning" || wordMode === "word") {
+        if (["1", "2", "3", "4"].includes(e.key)) { wordChoice(Number(e.key) - 1); return; }
+        return;
+      }
       if (e.key === " " || e.key === "Enter") {
         if (!backShown) { e.preventDefault(); flipWord(); }
         return;

@@ -1,8 +1,8 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.19.0）
+   个人工作台 · 本地服务（v1.20.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
-   v1.19.0：考研倒计时与冲刺 / 每日习惯打卡 / OCR 异步化（任务队列+轮询）/
+   v1.20.0：考研倒计时与冲刺 / 每日习惯打卡 / OCR 异步化（任务队列+轮询）/
    日历到期角标 / 键盘快捷键 / 词汇 TTS / 遗忘曲线 / 批量删除导出 /
    试卷难度配比 / 学情周报导出 / 模块开关 / 测试基建与 API 直测。
    v1.17.0：前端业务逻辑拆分为 js/01-core ~ js/12-boot（经典 script 顺序加载）。
@@ -827,7 +827,22 @@ const server = http.createServer(async (req, res) => {
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
     }
-    if (p === "/api/questions" && req.method === "POST") {
+    if (p === "/api/questions/delete-batch" && req.method === "POST") {
+      // v1.20：批量删除（重导词书等），单事务
+      try {
+        const body = await readBody(req);
+        const ids = Array.isArray(body.ids) ? body.ids.filter(x => Number.isInteger(x)) : [];
+        if (!ids.length) return sendJson(res, 400, { code: 40001, message: "id 列表为空" });
+        writeQueue = writeQueue.then(() => {
+          const delQ = db.prepare("DELETE FROM questions WHERE id = ?");
+          const delL = db.prepare("DELETE FROM review_logs WHERE qid = ?");
+          for (const id of ids) { delQ.run(id); delL.run(id); }
+        });
+        await writeQueue;
+        sendJson(res, 200, { ok: true, deleted: ids.length });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }    if (p === "/api/questions" && req.method === "POST") {
       try {
         const body = await readBody(req);
         writeQueue = writeQueue.then(() => {
@@ -1338,7 +1353,7 @@ server.listen(PORT, "127.0.0.1", () => {
   const uCount = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
   console.log("==============================================");
   console.log(`个人工作台本地服务已启动：http://127.0.0.1:${PORT}`);
-  console.log(`版本：v1.19.0 · Node ${process.versions.node}`);
+  console.log(`版本：v1.20.0 · Node ${process.versions.node}`);
   console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
   console.log(`备份：backups/ 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
   console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);
