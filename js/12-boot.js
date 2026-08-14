@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.18.2 · 12-boot.js（由 app.js 拆分）
+   个人工作台 v1.19.0 · 12-boot.js（由 app.js 拆分）
    初始化入口、window 暴露、跨标签同步、?auto=1
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -54,11 +54,27 @@ async function doResetDemo() {
   // ③ 复习卡键盘快捷键（做题时）：空格/回车翻答案 · 1/2/3/4 自评 · S 跳过 · ←/→ 切题
   document.addEventListener("keydown", (e) => {
     if (currentView !== "dashboard") return;
-    const play = $("#review-play");
-    if (!play || play.style.display === "none") return;
     const t = e.target;
     const tag = (t && t.tagName) || "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
+    // 🎴 背单词快捷键（优先）：空格翻卡 · 1/2/3 自评
+    if (wordSession) {
+      const wplay = $("#word-play");
+      if (!wplay || wplay.style.display === "none") return;
+      const back = $("#word-back"), rate = $("#word-rate");
+      const backShown = back && back.style.display !== "none";
+      if (e.key === " " || e.key === "Enter") {
+        if (!backShown) { e.preventDefault(); flipWord(); }
+        return;
+      }
+      if (["1", "2", "3"].includes(e.key)) {
+        if (rate && rate.style.display !== "none") wordRate({ "1": "know", "2": "fuzzy", "3": "miss" }[e.key]);
+        return;
+      }
+      return;
+    }
+    const play = $("#review-play");
+    if (!play || play.style.display === "none") return;
     const ans = $("#rev-answer"), rate = $("#rev-rate");
     const ansShown = ans && ans.style.display !== "none";
     const rateShown = rate && rate.style.display !== "none";

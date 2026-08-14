@@ -136,9 +136,15 @@ try {
   })).json();
   check("编辑已写入 SQLite", dbCheck.questions.find(q => q.id === 1).titleTex.includes("已编辑"));
 
-  // 5) 知识点管理按钮
+  // 5) 知识点管理按钮（v1.19 折叠树：先展开全部层级再检查按钮）
   await evalJS(`go("settings"); true`);
   await sleep(400);
+  await evalJS(`(() => {
+    treeOpen = {};
+    TREE.forEach(s => { treeOpen[s.id] = true; (s.children || []).forEach(ss => { treeOpen[ss.id] = true; (ss.children || []).forEach(ch => treeOpen[ch.id] = true); }); });
+    renderSettingsTree();
+  })(); true`);
+  await sleep(200);
   const settings = await evalJS(`(() => ({
     hasAddKp: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.includes("＋加知识点")),
     hasRename: !!Array.from(document.querySelectorAll("#settings-tree button")).find(b => b.textContent.trim() === "改"),

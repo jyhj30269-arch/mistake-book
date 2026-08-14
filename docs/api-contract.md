@@ -1,6 +1,6 @@
 # 考研错题本 · 前端 API 接口契约
 
-> 版本：v1.18.2 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
+> 版本：v1.19.0 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
 >
 > 本文件与 `../api.js` 一一对应。后端接入时按此契约实现同名方法即可，前端业务代码无需改动。
 
@@ -32,7 +32,8 @@
 | `uploadBookmarkFile(name, dataUrl)` | 文件名 + dataURL | `{ ok, url }` | 存本地 `uploads/`，静态可访问 |
 | `checkDuplicate(payload)` | `{ titleTex, subject, type, excludeId, pool? }` | 疑似重复题目数组 | 同科目同类型 + 7 天时间窗 + 中文 bigram Jaccard > 0.7；远端由后端查库 |
 | `listQuestions()` | 无 | 题目数组 | 题库列表 |
-| `saveQuestion(q)` | 题目对象 | `{ ok, id }` | 新增题目 |
+| saveQuestion(q) | 题目对象 | { ok, id } | 新增题目 |
+| saveQuestionsBatch(list) | 题目数组 | { ok, inserted } | **v1.19**：批量导入（词书等，单事务，幂等跳过已存在 id，上限 10000） |
 | `deleteQuestion(id)` | id | `{ ok }` | 删除题目（复习记录置空或级联，按 §4.3 规范） |
 | `saveReviewLog(log)` | 复习记录对象 | `{ ok }` | 追加一条自评记录（实时计算掌握度） |
 | `updateQuestion(q)` | 题目对象 | `{ ok }` | 更新题目（编辑 / 标记 / 归类 / 原图回写） |
@@ -51,7 +52,7 @@
 | `listHabits()` / `saveHabit(h)` / `updateHabit(h)` / `deleteHabit(id)` | 习惯对象 / id | `{ ok, data }` | 每日习惯打卡 CRUD（`{ id, name, doneDays: [], createdAt }`） |
 | `restoreDb(name, dataUrl)` | 备份 .db 文件 | `{ ok }` | 从备份恢复（服务端校验 SQLite 头；恢复前自动把当前库备份到 backups/） |
 
-> v1.18.2 说明：`saveSettings` 新增 `examDate`（YYYY-MM-DD）、`moduleOn`（`{ hot?, bookmarks? }`）；`GET /api/db` 返回 `examDate` / `moduleOn` / `habits`；`POST /api/bookmarks/:id` 新增 PUT（更新收藏）。
+> v1.19.0 说明：`saveSettings` 新增 `examDate`（YYYY-MM-DD）、`moduleOn`（`{ hot?, bookmarks? }`）；`GET /api/db` 返回 `examDate` / `moduleOn` / `habits`；`POST /api/bookmarks/:id` 新增 PUT（更新收藏）。
 | `saveStudy(seconds)` | 秒数 | `{ ok }` | 学习时长落库 |
 | `resetAll()` | 无 | 无 | 清空本机数据（仅本地测试用） |
 

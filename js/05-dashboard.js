@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.18.2 · 05-dashboard.js（由 app.js 拆分）
+   个人工作台 v1.19.0 · 05-dashboard.js（由 app.js 拆分）
    仪表盘渲染、推荐算法、今日任务
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -51,6 +51,7 @@ function renderDashboard() {
   renderExamCountdown();
   renderHabitsPanel();
   renderTodayPlan();
+  renderWordPanel();
 }
 
 /* 📅 考研倒计时横幅（剩余 ≤60 天进入冲刺提示） */

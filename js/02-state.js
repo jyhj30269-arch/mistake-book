@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.18.2 · 02-state.js（由 app.js 拆分）
+   个人工作台 v1.19.0 · 02-state.js（由 app.js 拆分）
    全局状态、知识点树、去重、增量写与整库持久化（apiCall / persistLocal / loadLocal）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -114,6 +114,7 @@ let reviewSets = []; // 自建复习集 { id, name, qids: [], createdAt }
 let habits = [];     // 每日习惯 { id, name, doneDays: [], createdAt }
 let examDate = "";   // 考试日期 YYYY-MM-DD（v1.18 考研倒计时）
 let moduleOn = {};   // 外围模块开关 { hot?: bool, bookmarks?: bool }
+let wordPlan = null; // 背单词计划 { newPerDay: 50 }（v1.19）
 let summaryRange = "week";
 let dailyMood = "";
 let todoViewMode = "list";   // 待办：list | board
@@ -201,6 +202,7 @@ function persistLocal() {
     examDate,
     moduleOn,
     habits,
+    wordPlan,
     reviewCfg: { ...reviewCfg },
     personal: {
       todos: personal.todos,
@@ -265,6 +267,7 @@ async function loadLocal() {
   }
   if (typeof d.examDate === "string") examDate = d.examDate;
   if (d.moduleOn && typeof d.moduleOn === "object") moduleOn = d.moduleOn;
+  if (d.wordPlan && typeof d.wordPlan === "object") wordPlan = { newPerDay: 50, ...d.wordPlan };
   return true;
 }
 

@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.18.2 · 11-settings.js（由 app.js 拆分）
+   个人工作台 v1.19.0 · 11-settings.js（由 app.js 拆分）
    设置（提醒/主题开关/OCR 配置/知识点管理/导出导入 CSV/备份恢复）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -75,50 +75,69 @@ function renderSettings() {
   if (modBm) modBm.checked = moduleOn.bookmarks !== false;
   const awayEl = $("#away-policy");
   if (awayEl) awayEl.value = study.awayPolicy || "auto";
+  const wpEl = $("#wp-new-per-day");
+  if (wpEl) wpEl.value = (wordPlan && wordPlan.newPerDay) || 50;
   loadOcrConfig();
+  renderSettingsTree();
+}
+
+/* ---------- 知识点管理（v1.19 可折叠树：科目→子科目→章节→知识点） ---------- */
+let treeOpen = null; // 展开状态缓存 { [nodeId]: true }；null = 未初始化
+const TREE_DEFAULT_OPEN = 1; // 默认展开层级：科目展开到子科目一层
+
+function treeIsOpen(id) {
+  if (!treeOpen) return false;
+  return !!treeOpen[id];
+}
+
+function toggleTreeNode(id) {
+  treeOpen = treeOpen || {};
+  treeOpen[id] = !treeOpen[id];
+  renderSettingsTree();
+}
+
+function renderSettingsTree() {
   const box = $("#settings-tree");
+  if (!box) return;
+  // 初始化：默认展开所有科目（显示到子科目一层）
+  if (!treeOpen) {
+    treeOpen = {};
+    TREE.forEach(s => { treeOpen[s.id] = true; });
+  }
+  const row = (icon, name, id, btns, depth) => `
+    <div class="flex-between tree-row" style="padding:${depth * 4 + 4}px 8px;cursor:pointer;" onclick="toggleTreeNode('${id}')" title="点击展开/收起">
+      <span>${icon} ${esc(name)}</span>
+      <div class="flex" style="gap:4px;" onclick="event.stopPropagation()">${btns}</div>
+    </div>`;
+  const kpRow = (k, chId) => `<div class="flex-between tree-row" style="padding:3px 8px 3px 20px;">
+    <span class="small">${esc(k)}</span>
+    <button class="btn btn-sm btn-danger" data-ch="${chId}" data-k="${esc(k)}" onclick="askDelKp(this)">删</button>
+  </div>`;
+
   box.innerHTML = `
     <div class="flex-between mb-16" style="gap:12px;">
-      <span class="small muted">层级：科目 → 子科目 → 章节 → 知识点。新增示例：点「数学」的＋加子科目（如已有高等数学则跳过）→ 点「高等数学」的＋加章节，名称填「无穷级数」→ 点该章节的＋加知识点。</span>
+      <span class="small muted">点击科目/子科目/章节行可展开或收起（默认展开到子科目一层）。＋加/改/删 按钮在每行右侧。</span>
       <button class="btn btn-sm btn-primary" onclick="addSubject()">＋ 新增科目</button>
     </div>` +
     TREE.map(s => `
-    <div class="flex-between" style="padding:5px 8px;">
-      <b>${esc(s.name)}</b>
-      <div class="flex">
-        <button class="btn btn-sm" onclick="addNode('${s.id}')">＋加子科目</button>
-        <button class="btn btn-sm" onclick="renameNode('${s.id}')">改</button>
-        <button class="btn btn-sm btn-danger" onclick="delNode('${s.id}')">删</button>
-      </div>
-    </div>
-    <div class="tree-children">
-      ${s.children.map(ss => `
-        <div class="flex-between" style="padding:4px 8px;">
-          <span>∟ ${esc(ss.name)}</span>
-          <div class="flex">
-            <button class="btn btn-sm" onclick="addNode('${ss.id}')">＋加章节</button>
-            <button class="btn btn-sm" onclick="renameNode('${ss.id}')">改</button>
-            <button class="btn btn-sm btn-danger" onclick="delNode('${ss.id}')">删</button>
-          </div>
-        </div>
-        <div class="tree-children">
-          ${ss.children.map(ch => `
-            <div class="flex-between" style="padding:3px 8px;">
-              <span>∟ ${esc(ch.name)}</span>
-              <div class="flex">
-                <button class="btn btn-sm" onclick="addKp('${ch.id}')">＋加知识点</button>
-                <button class="btn btn-sm" onclick="renameNode('${ch.id}')">改</button>
-                <button class="btn btn-sm btn-danger" onclick="delNode('${ch.id}')">删</button>
-              </div>
-            </div>
-            <div class="tree-children">
-              ${ch.children.map(k => `<div class="flex-between" style="padding:3px 8px 3px 16px;">
-                <span>∟ ${esc(k)}</span>
-                <button class="btn btn-sm btn-danger" data-ch="${ch.id}" data-k="${esc(k)}" onclick="askDelKp(this)">删</button>
-              </div>`).join("")}
-            </div>`).join("")}
-        </div>`).join("")}
-    </div>`).join("");
+      ${row(treeIsOpen(s.id) ? "▾" : "▸", s.name, s.id,
+        `<button class="btn btn-sm" onclick="addNode('${s.id}')">＋加子科目</button>
+         <button class="btn btn-sm" onclick="renameNode('${s.id}')">改</button>
+         <button class="btn btn-sm btn-danger" onclick="delNode('${s.id}')">删</button>`, 0)}
+      ${treeIsOpen(s.id) ? s.children.map(ss => `
+        ${row(treeIsOpen(ss.id) ? "▾" : "▸", "∟ " + ss.name, ss.id,
+          `<button class="btn btn-sm" onclick="addNode('${ss.id}')">＋加章节</button>
+           <button class="btn btn-sm" onclick="renameNode('${ss.id}')">改</button>
+           <button class="btn btn-sm btn-danger" onclick="delNode('${ss.id}')">删</button>`, 1)}
+        ${treeIsOpen(ss.id) ? ss.children.map(ch => `
+          ${row(treeIsOpen(ch.id) ? "▾" : "▸", "∟ " + ch.name, ch.id,
+            `<button class="btn btn-sm" onclick="addKp('${ch.id}')">＋加知识点</button>
+             <button class="btn btn-sm" onclick="renameNode('${ch.id}')">改</button>
+             <button class="btn btn-sm btn-danger" onclick="delNode('${ch.id}')">删</button>`, 2)}
+          ${treeIsOpen(ch.id) ? ch.children.map(k => kpRow(k, ch.id)).join("") : ""}
+        `).join("") : ""}
+      `).join("") : ""}
+    `).join("");
 }
 
 /* OCR 服务配置（模拟 / MinerU 真实识别） */

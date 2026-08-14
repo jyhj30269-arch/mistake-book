@@ -47,6 +47,12 @@ jobs:
       - name: v1.18.0 新功能验证
         run: node verify-v18.mjs
 
+      - name: v1.19.0 背单词验证
+        run: node verify-v19.mjs
+
+      - name: 全页面走查
+        run: node verify-sweep.mjs
+
       - name: 服务端 API 直接测试
         run: node api-test.mjs
 

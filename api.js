@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 · API 服务层（前后端接口契约 v1.18.2）
+   个人工作台 · API 服务层（前后端接口契约 v1.19.0）
    ------------------------------------------------------------
    本文件是前后端的唯一接口契约。业务代码只通过 window.API 访问
    OCR / 数据 / 去重，不直接读写 localStorage 或 fetch。
@@ -441,6 +441,19 @@
       db.reviewLogs = [...(db.reviewLogs || []), log];
       writeDB(db);
       return { ok: true };
+    },
+
+    /** 批量导入题目（词书等，单事务，幂等跳过已存在 id） */
+    async saveQuestionsBatch(list) {
+      if (this.mode !== "remote") return { ok: true };
+      const res = await fetch(`${this.base}/questions/batch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questions: list })
+      });
+      const j = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((j && j.message) || `批量导入失败 ${res.status}`);
+      return j;
     },
 
     /** 保存学习时长（秒）与按天分布（服务端 upsert，增量写） */

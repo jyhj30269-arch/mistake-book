@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.18.2 -->
+  <!-- 个人工作台 v1.19.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -170,6 +170,7 @@
               <div class="flex" style="gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-lg" onclick="reviewDueNow()">🔥 复习到期题</button>
                 <button class="btn btn-primary btn-lg" onclick="startReviewFromRec()">开始推荐复习</button>
+                <button class="btn btn-lg" onclick="startWordReview()">🎴 背单词</button>
                 <button class="btn btn-lg" onclick="toggleReviewCfg()">⚙️ 抽题配置</button>
               </div>
             </div>
@@ -281,6 +282,40 @@
                 <div id="rev-done-list" style="display:flex;flex-direction:column;gap:10px;"></div>
                 <div class="flex mt-16">
                   <button class="btn btn-primary" onclick="startReview()">再来一轮</button>
+                  <button class="btn" onclick="go('dashboard')">回到顶部</button>
+                </div>
+              </div>
+
+              <!-- ========== 背单词（v1.19） ========== -->
+              <div class="card review-card mt-16" id="word-config" style="display:none;"></div>
+              <div class="card review-card mt-16" id="word-play" style="display:none;">
+                <div class="flex-between mb-16">
+                  <span class="tag" id="word-pos"></span>
+                  <span class="tag">🎴 背单词</span>
+                </div>
+                <div class="word-front" id="word-front">
+                  <div class="word-word" id="word-word"></div>
+                  <button class="btn btn-sm mt-8" onclick="speakWord()">🔊 发音</button>
+                </div>
+                <div class="word-back" id="word-back" style="display:none;">
+                  <div id="word-meaning" style="font-size:17px;"></div>
+                  <div id="word-example" class="mt-8"></div>
+                </div>
+                <button class="btn btn-lg mt-16" onclick="flipWord()" id="word-show-ans">翻卡看释义</button>
+                <div class="self-rate mt-16" id="word-rate" style="display:none;">
+                  <button class="rate-btn ok" onclick="wordRate('know')">✅ 认识</button>
+                  <button class="rate-btn" style="border-color:#F59F00;color:#B97700;" onclick="wordRate('fuzzy')">🟡 模糊</button>
+                  <button class="rate-btn no" onclick="wordRate('miss')">❌ 不认识</button>
+                </div>
+                <div class="small muted mt-16">快捷键：空格翻卡 · 1 认识 / 2 模糊 / 3 不认识 · 模糊和认识不清的词本轮自动回炉</div>
+                <div class="divider"></div>
+                <button class="btn" onclick="wordExit()">退出背单词</button>
+              </div>
+              <div class="card review-card mt-16" id="word-done" style="display:none;">
+                <div class="card-head"><div class="card-title">🎉 本轮背词完成</div></div>
+                <div id="word-done-stats"></div>
+                <div class="flex mt-16">
+                  <button class="btn btn-primary" onclick="startWordReview()">再背一轮</button>
                   <button class="btn" onclick="go('dashboard')">回到顶部</button>
                 </div>
               </div>
@@ -568,7 +603,7 @@
               当前为 <b>本地 SQLite 模式</b>：数据保存在项目目录的 <span class="mono">mistake-book.db</span>，由本地服务（<span class="mono">server.js</span>）提供读写，OCR 默认为模拟识别（可在下方切换 MinerU）。
             </div>
             <div class="flex mt-16">
-              <span class="tag">当前版本 <b id="app-version">v1.18.2</b></span>
+              <span class="tag">当前版本 <b id="app-version">v1.19.0</b></span>
               <a class="small" href="https://github.com/jyhj30269-arch/mistake-book" target="_blank" rel="noopener">GitHub 仓库 ↗</a>
             </div>
             <div class="flex mt-16" style="flex-wrap:wrap;">
@@ -643,6 +678,31 @@
                 <div class="small muted">深色模式适合夜间学习（设置自动保存）</div>
               </div>
               <button class="btn" id="theme-switch" onclick="toggleTheme()">切换到深色</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><div class="card-title">📚 背单词</div><span class="tag">六级核心词 3000</span></div>
+            <div class="flex-between">
+              <div>
+                <div class="small" id="word-progress-info">词书尚未导入</div>
+                <div class="small muted">一键导入内置六级高频词 3000（含释义/例句/音标），或粘贴自己的词表</div>
+              </div>
+              <div class="flex" style="gap:8px;flex-wrap:wrap;">
+                <button class="btn" onclick="importBuiltinWordbook()">⬇ 一键导入词书</button>
+                <button class="btn" onclick="openPasteWords()">📋 批量粘贴导入</button>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="flex-between">
+              <div>
+                <div class="small">每日新词上限</div>
+                <div class="small muted">每次背单词 = 今日到期复习词（SM-2 优先）+ 新词补足上限（默认 50）</div>
+              </div>
+              <div class="flex" style="gap:8px;">
+                <input class="input" type="number" id="wp-new-per-day" min="1" max="500" value="50" style="width:90px;" aria-label="每日新词上限" />
+                <button class="btn btn-primary" onclick="saveWordPlan()">保存</button>
+              </div>
             </div>
           </div>
 
@@ -1014,5 +1074,6 @@
   <script src="js/10-extras.js"></script>
   <script src="js/11-settings.js"></script>
   <script src="js/12-boot.js"></script>
+  <script src="js/13-wordbook.js"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 {
   "name": "mistake-book",
-  "version": "1.18.2",
+  "version": "1.19.0",
   "private": true,
   "description": "个人工作台：错题学习（拍照录入 → OCR → 分类 → 随机复习 → 掌握度评估 → PDF 试卷）+ 个人管理（待办/目标/收件箱/日历/复盘/资讯/收藏）",
   "main": "server.js",
@@ -11,7 +11,7 @@
     "start": "node server.js",
     "check:version": "node scripts/check-version.mjs",
     "test": "node smoke-test.mjs && node layout-check.mjs",
-    "test:all": "node verify-review-algo.mjs && node verify-mastery.mjs && node verify-scheduler.mjs && node verify-v15.mjs && node verify-v16.mjs && node verify-v18.mjs && node api-test.mjs && node smoke-test.mjs && node layout-check.mjs && node feature-check.mjs && node verify-personal.mjs && node verify-register.mjs"
+    "test:all": "node verify-review-algo.mjs && node verify-mastery.mjs && node verify-scheduler.mjs && node verify-v15.mjs && node verify-v16.mjs && node verify-v18.mjs && node verify-v19.mjs && node verify-sweep.mjs && node api-test.mjs && node smoke-test.mjs && node layout-check.mjs && node feature-check.mjs && node verify-personal.mjs && node verify-register.mjs"
   },
   "keywords": [
     "mistake-book",

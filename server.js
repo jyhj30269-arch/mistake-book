@@ -1,8 +1,8 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.18.2）
+   个人工作台 · 本地服务（v1.19.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
-   v1.18.2：考研倒计时与冲刺 / 每日习惯打卡 / OCR 异步化（任务队列+轮询）/
+   v1.19.0：考研倒计时与冲刺 / 每日习惯打卡 / OCR 异步化（任务队列+轮询）/
    日历到期角标 / 键盘快捷键 / 词汇 TTS / 遗忘曲线 / 批量删除导出 /
    试卷难度配比 / 学情周报导出 / 模块开关 / 测试基建与 API 直测。
    v1.17.0：前端业务逻辑拆分为 js/01-core ~ js/12-boot（经典 script 顺序加载）。
@@ -392,6 +392,7 @@ function getDb() {
     remindOn: s.remindOn !== "false",
     theme: s.theme === "dark" ? "dark" : "light",
     examDate: s.examDate || "",
+    wordPlan: (() => { try { return JSON.parse(s.word_plan || "null"); } catch (e) { return null; } })(),
     moduleOn: (() => { try { return JSON.parse(s.module_on || "{}"); } catch (e) { return {}; } })(),
     remindDate: s.remindDate || "",
     reviewResume: (() => { try { return JSON.parse(s.reviewResume || "null"); } catch (e) { return null; } })(),
@@ -444,6 +445,7 @@ function saveDb(data) {
     insS.run("module_on", JSON.stringify(data.moduleOn || {}));
     insS.run("away_policy", (data.study && ["auto", "always", "never"].includes(data.study.awayPolicy)) ? data.study.awayPolicy : "auto");
     insS.run("away_threshold_min", String((data.study && data.study.awayThresholdMin) || 5));
+    insS.run("word_plan", JSON.stringify(data.wordPlan || null));
     const insD = db.prepare("INSERT INTO study_days(day, seconds) VALUES (?,?)");
     Object.entries((data.study && data.study.perDay) || {}).forEach(([day, sec]) => insD.run(day, sec));
     const p = data.personal || {};
@@ -800,6 +802,31 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (p === "/api/questions" && req.method === "GET") { sendJson(res, 200, { data: readQuestions() }); return; }
+    if (p === "/api/questions/batch" && req.method === "POST") {
+      // v1.19：批量导入（词书等），单事务插入，幂等跳过已存在 id
+      try {
+        const body = await readBody(req);
+        const list = Array.isArray(body.questions) ? body.questions : [];
+        if (!list.length) return sendJson(res, 400, { code: 40001, message: "题目列表为空" });
+        if (list.length > 10000) return sendJson(res, 400, { code: 40002, message: "单次最多 10000 条" });
+        writeQueue = writeQueue.then(() => {
+          const insQ = db.prepare(`INSERT OR IGNORE INTO questions
+            (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
+             wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate, imgs)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+          for (const q of list) {
+            insQ.run(q.id, q.type || "vocabulary", q.subject, q.subSubject || "", q.chapter || "",
+              JSON.stringify(q.kps || []), JSON.stringify(q.tags || []), q.titleTex, q.solutionTex || "",
+              q.wrongAnswer || "", q.note || "", JSON.stringify(q.marks || {}), q.createdAt || Date.now(),
+              q.urgent ? 1 : 0, q.calcWeak ? 1 : 0, q.needConsolidate ? 1 : 0,
+              JSON.stringify(q.imgs || []));
+          }
+        });
+        await writeQueue;
+        sendJson(res, 200, { ok: true, inserted: list.length });
+      } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
+      return;
+    }
     if (p === "/api/questions" && req.method === "POST") {
       try {
         const body = await readBody(req);
@@ -886,6 +913,7 @@ const server = http.createServer(async (req, res) => {
           if (body.moduleOn && typeof body.moduleOn === "object") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('module_on', ?)").run(JSON.stringify(body.moduleOn));
           if (body.awayPolicy && ["auto", "always", "never"].includes(body.awayPolicy)) db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('away_policy', ?)").run(body.awayPolicy);
           if (body.awayThresholdMin && Number(body.awayThresholdMin) > 0) db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('away_threshold_min', ?)").run(String(body.awayThresholdMin));
+          if (body.wordPlan && typeof body.wordPlan === "object") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('word_plan', ?)").run(JSON.stringify(body.wordPlan));
         });
         await writeQueue;
         sendJson(res, 200, { ok: true });
@@ -1310,7 +1338,7 @@ server.listen(PORT, "127.0.0.1", () => {
   const uCount = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
   console.log("==============================================");
   console.log(`个人工作台本地服务已启动：http://127.0.0.1:${PORT}`);
-  console.log(`版本：v1.18.2 · Node ${process.versions.node}`);
+  console.log(`版本：v1.19.0 · Node ${process.versions.node}`);
   console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
   console.log(`备份：backups/ 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
   console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);
