@@ -4,10 +4,12 @@
 
 ## 版本
 
-- 当前版本：**v1.25.2**
+- 当前版本：**v1.25.3**
 - 版本规则见 `AGENTS.md`：每次修改代码必须升级版本号并推送到 GitHub。
 
-## 当前能力（v1.25.2）
+## 当前能力（v1.25.3）
+
+- v1.25.3（账号救生通道）：**数据库里一个账号都没有时，强制开放注册**（`ALLOW_REGISTER=0` 自动忽略，启动横幅醒目警告）——防止 `DISABLE_DEMO_ACCOUNT=1` + `ALLOW_REGISTER=0` + 未设 `INIT_ADMIN_USER` 时"无账号可登录且无法注册"的锁死；注册完第一个账号后注册按开关自动关闭。
 
 - v1.25.2（云端一键部署）：新增 `INIT_ADMIN_USER` / `INIT_ADMIN_PASSWORD`（首次启动自动创建账号，配合关闭演示账号使用）、`AUTO_IMPORT_WORDS=1`（首次启动自动导入内置 3000 词，clone 后无需手动点导入）。完整保姆级部署步骤见 `docs/deploy-aliyun.md`。
 

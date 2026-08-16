@@ -1,7 +1,9 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.25.2）
+   个人工作台 · 本地服务（v1.25.3）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.25.3：账号救生通道——数据库一个账号都没有时强制开放注册（防止
+   DISABLE_DEMO_ACCOUNT=1 + ALLOW_REGISTER=0 + 未设 INIT_ADMIN_USER 造成锁死）。
    v1.25.2：云端一键部署——INIT_ADMIN_USER/INIT_ADMIN_PASSWORD 首次建号 /
    AUTO_IMPORT_WORDS=1 自动导入内置 3000 词（clone 后无需手动点导入）。
    v1.25.1：上传目录（UPLOAD_DIR）跟随数据库所在目录——测试用临时库时自动隔离，
@@ -54,6 +56,17 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(path.dirname(DB_FILE), "u
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(ROOT, "backups");
 const COOKIE_SECURE = process.env.COOKIE_SECURE === "1"; // HTTPS 反代场景置 1 追加 Secure
 const ALLOW_REGISTER = process.env.ALLOW_REGISTER !== "0"; // 公网部署建议置 0 关闭开放注册
+/* 注册是否开放：ALLOW_REGISTER 开关，但「数据库一个账号都没有」时强制开放（救生通道，防止锁死——
+   否则 DISABLE_DEMO_ACCOUNT=1 + ALLOW_REGISTER=0 + 未设 INIT_ADMIN_USER 时无人能登录且无法注册） */
+function registerAllowed() {
+  if (ALLOW_REGISTER) return true;
+  const n = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
+  if (n === 0) {
+    console.warn("⚠ 数据库没有任何账号：注册已临时开放（ALLOW_REGISTER=0 被忽略），请立即注册你的账号；注册完成后注册将按开关关闭");
+    return true;
+  }
+  return false;
+}
 const DISABLE_DEMO_ACCOUNT = process.env.DISABLE_DEMO_ACCOUNT === "1"; // 公网部署建议置 1 不再创建 admin/admin123
 const OCR_ENGINE = (process.env.OCR_ENGINE || "auto").toLowerCase(); // auto | real | mock | off
 const MINERU_CLI = process.env.MINERU_CLI || path.join(process.env.APPDATA || "", "npm", "mineru-open-api.cmd");
@@ -874,7 +887,7 @@ const server = http.createServer(async (req, res) => {
     if (!publicPath && !requireSession(req, res)) return;
     // 账号与会话
     if (p === "/api/auth/register" && req.method === "POST") {
-      if (!ALLOW_REGISTER) return sendJson(res, 403, { code: 40301, message: "注册已关闭（管理员部署时设置 ALLOW_REGISTER=0）" });
+      if (!registerAllowed()) return sendJson(res, 403, { code: 40301, message: "注册已关闭（管理员部署时设置 ALLOW_REGISTER=0）" });
       try {
         const body = await readBody(req);
         const name = String(body.username || "").trim();
@@ -1533,7 +1546,10 @@ server.listen(PORT, HOST, () => {
   console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
   console.log(`备份：${BACKUP_DIR} 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
   console.log(`OCR：${ocrMode === "real" ? "MinerU 真实识别" : ocrMode === "mock" ? "模拟识别（测试）" : "未配置（生产请安装 mineru-open-api 或设 OCR_ENGINE=mock）"}`);
-  if (!ALLOW_REGISTER) console.log("注册：已关闭（ALLOW_REGISTER=0）");
+  if (!ALLOW_REGISTER) {
+    if (uCount === 0) console.log("⚠ 注册：临时开放（数据库无账号，防止锁死）——请立即注册你的账号，注册后自动关闭");
+    else console.log("注册：已关闭（ALLOW_REGISTER=0）");
+  }
   if (DISABLE_DEMO_ACCOUNT) console.log("演示账号：已禁用（DISABLE_DEMO_ACCOUNT=1）");
   if (COOKIE_SECURE) console.log("Cookie：Secure（COOKIE_SECURE=1，需 HTTPS）");
   console.log("按 Ctrl+C 停止服务");
