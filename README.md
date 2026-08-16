@@ -4,11 +4,12 @@
 
 ## 版本
 
-- 当前版本：**v1.25.3**
+- 当前版本：**v1.25.4**
 - 版本规则见 `AGENTS.md`：每次修改代码必须升级版本号并推送到 GitHub。
 
-## 当前能力（v1.25.3）
+## 当前能力（v1.25.4）
 
+- v1.25.4（MinerU 云端 API 模式）：设 `MINERU_API_TOKEN=sk-...` 即可用**官方云端识别**（免装本地 MinerU、免下模型），走 Agent 通道（单张 ≤10MB），已用真实 Token 端到端验证识别成功。
 - v1.25.3（账号救生通道）：**数据库里一个账号都没有时，强制开放注册**（`ALLOW_REGISTER=0` 自动忽略，启动横幅醒目警告）——防止 `DISABLE_DEMO_ACCOUNT=1` + `ALLOW_REGISTER=0` + 未设 `INIT_ADMIN_USER` 时"无账号可登录且无法注册"的锁死；注册完第一个账号后注册按开关自动关闭。
 
 - v1.25.2（云端一键部署）：新增 `INIT_ADMIN_USER` / `INIT_ADMIN_PASSWORD`（首次启动自动创建账号，配合关闭演示账号使用）、`AUTO_IMPORT_WORDS=1`（首次启动自动导入内置 3000 词，clone 后无需手动点导入）。完整保姆级部署步骤见 `docs/deploy-aliyun.md`。
@@ -122,8 +123,9 @@ pm2 save && pm2 startup
 | `INIT_ADMIN_USER` / `INIT_ADMIN_PASSWORD` | 未设 | **首次启动自动创建你的登录账号**（配合 DISABLE_DEMO_ACCOUNT=1 使用，否则公网无账号可登录） |
 | `AUTO_IMPORT_WORDS` | 未设 | 设为 `1`：首次启动自动导入内置 3000 词（clone 后无需手动点导入） |
 | `COOKIE_SECURE` | 未设 | HTTPS 反代场景设 `1`（Cookie 加 Secure 标志） |
-| `OCR_ENGINE` | auto | `auto`：有 MinerU 用真实识别，`MINERU_DISABLE=1` 或显式 `mock` 用模拟，否则 **`off`（识别明确报错，绝不把模拟文本当真结果入库）** |
-| `MINERU_CLI` | Windows 自动探测 | MinerU CLI 可执行文件路径（Linux 下请装 mineru CLI 并指向它，Windows 用 `.cmd`） |
+| `OCR_ENGINE` | auto | `auto`：有 `MINERU_API_TOKEN` 用云端 API，有 `MINERU_CLI` 用本地 CLI，`MINERU_DISABLE=1` 或显式 `mock` 用模拟，否则 **`off`（识别明确报错，绝不把模拟文本当真结果入库）** |
+| `MINERU_API_TOKEN` | 未设 | **MinerU 云端 API Token（`sk-...`）**：免装本地 MinerU，服务器直接调官方在线识别（单张 ≤10MB） |
+| `MINERU_CLI` | Windows 自动探测 | MinerU 本地 CLI 可执行文件路径（Linux 下请装 mineru CLI 并指向它，Windows 用 `.cmd`） |
 | `PDF_BROWSER` | 自动探测 | 试卷导出用的无头浏览器路径（Linux 常见路径已内置：chromium / google-chrome） |
 
 ```bash

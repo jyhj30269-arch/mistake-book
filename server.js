@@ -1,7 +1,9 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.25.3）
+   个人工作台 · 本地服务（v1.25.4）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.25.4：MinerU 云端 API 模式——设 MINERU_API_TOKEN 即可真实识别，
+   走官方 Agent 通道（免装本地 CLI/模型，≤10MB/张）。
    v1.25.3：账号救生通道——数据库一个账号都没有时强制开放注册（防止
    DISABLE_DEMO_ACCOUNT=1 + ALLOW_REGISTER=0 + 未设 INIT_ADMIN_USER 造成锁死）。
    v1.25.2：云端一键部署——INIT_ADMIN_USER/INIT_ADMIN_PASSWORD 首次建号 /
@@ -70,10 +72,14 @@ function registerAllowed() {
 const DISABLE_DEMO_ACCOUNT = process.env.DISABLE_DEMO_ACCOUNT === "1"; // 公网部署建议置 1 不再创建 admin/admin123
 const OCR_ENGINE = (process.env.OCR_ENGINE || "auto").toLowerCase(); // auto | real | mock | off
 const MINERU_CLI = process.env.MINERU_CLI || path.join(process.env.APPDATA || "", "npm", "mineru-open-api.cmd");
+const MINERU_API_TOKEN = String(process.env.MINERU_API_TOKEN || "").trim(); // 云端 API Token（sk-...）：免装本地 CLI/模型
 const MINERU_AVAILABLE = !!MINERU_CLI && fs.existsSync(MINERU_CLI) && process.env.MINERU_DISABLE !== "1";
-/* OCR 引擎模式：auto=有真实 MinerU 用 real（测试 MINERU_DISABLE=1 用 mock），否则 off（明确报错，不静默造假） */
+/* OCR 引擎模式：api=云端 API Token（优先，免装 CLI）/ real=本地 CLI / mock=模拟（测试）/
+   off=未配置（明确报错，不静默造假） */
 function ocrEngineMode() {
-  if (OCR_ENGINE === "real" || OCR_ENGINE === "mock" || OCR_ENGINE === "off") return OCR_ENGINE;
+  if (OCR_ENGINE === "mock" || OCR_ENGINE === "off") return OCR_ENGINE;
+  if (MINERU_API_TOKEN) return "api"; // 云端 API 优先于本地 CLI
+  if (OCR_ENGINE === "real") return "real";
   if (process.env.MINERU_DISABLE === "1") return "mock"; // 测试加速
   return MINERU_AVAILABLE ? "real" : "off";
 }
@@ -675,6 +681,53 @@ function mineruRecognize(dataUrl) {
   });
 }
 
+/* ---------- MinerU 云端 API 识别（MINERU_API_TOKEN 模式：免装本地 CLI/模型）
+   走官方 Agent 通道：POST /parse/file 申请上传地址 → PUT 上传 → GET /parse/{id} 轮询 → 下载 markdown。
+   Agent 通道无需 token（IP 限流），小文件（≤10MB）最快最省；带 token 时同样可用（保留 Bearer）。 */
+const MINERU_AGENT_API = process.env.MINERU_API_BASE || "https://mineru.net/api/v1/agent";
+async function mineruApiRecognize(dataUrl) {
+  const buf = Buffer.from(String(dataUrl || "").split(",")[1] || "", "base64");
+  if (!buf.length) throw new Error("图片数据为空");
+  if (buf.length > 10 * 1024 * 1024) throw new Error("图片超过云端 API 单文件上限（10MB），请压缩后重试");
+  const headers = { "Content-Type": "application/json" };
+  if (MINERU_API_TOKEN) headers["Authorization"] = "Bearer " + MINERU_API_TOKEN;
+  // 1) 申请上传地址（含 is_ocr=true 处理扫描/拍照件，enable_formula 识别公式）
+  const res = await fetch(`${MINERU_AGENT_API}/parse/file`, {
+    method: "POST", headers,
+    body: JSON.stringify({ file_name: "question.png", language: "ch", enable_table: false, is_ocr: true, enable_formula: true })
+  });
+  const j = await res.json().catch(() => null);
+  if (!res.ok || !j || j.success === false || (j.code && j.code !== 0)) {
+    throw new Error("MinerU 建任务失败：" + String((j && (j.msg || j.message)) || ("HTTP " + res.status)).slice(0, 200));
+  }
+  const taskId = j.data && j.data.task_id;
+  const fileUrl = j.data && j.data.file_url;
+  if (!taskId || !fileUrl) throw new Error("MinerU 未返回 task_id / file_url");
+  // 2) 上传文件（文档要求不带 Content-Type，仅 Content-Length）
+  const up = await fetch(fileUrl, { method: "PUT", headers: { "Content-Length": String(buf.length) }, body: new Uint8Array(buf) });
+  if (![200, 201, 203].includes(up.status)) throw new Error("MinerU 文件上传失败（HTTP " + up.status + "）");
+  // 3) 轮询任务结果
+  const t0 = Date.now();
+  while (Date.now() - t0 < 240000) {
+    await new Promise(r => setTimeout(r, 3000));
+    const q = await fetch(`${MINERU_AGENT_API}/parse/${taskId}`, { headers });
+    const qj = await q.json().catch(() => null);
+    const st = qj && qj.data && qj.data.state;
+    if (st === "done") {
+      const mdUrl = qj.data.markdown_url;
+      if (!mdUrl) throw new Error("MinerU 未返回 markdown_url");
+      const md = await fetch(mdUrl);
+      if (!md.ok) throw new Error("MinerU 结果下载失败（HTTP " + md.status + "）");
+      return { text: (await md.text()).trim(), source: "mineru-api" };
+    }
+    if (st === "failed") {
+      throw new Error("MinerU 识别失败：" + String((qj.data && qj.data.err_msg) || "未知错误").slice(0, 200));
+    }
+    // pending/running/converting/uploading/waiting-file → 继续轮询
+  }
+  throw new Error("MinerU 识别超时（>4 分钟）");
+}
+
 /* ---------- OCR 任务队列（v1.18 异步化：提交即返回 taskId，后台串行识别） ---------- */
 const ocrTasks = new Map(); // taskId -> { status: pending|done|failed, result?, error?, finishedAt }
 let ocrQueue = Promise.resolve();
@@ -687,7 +740,9 @@ function queueOcr(body) {
     const mode = ocrEngineMode();
     try {
       let r;
-      if (mode === "real") {
+      if (mode === "api") {
+        r = await mineruApiRecognize(body.dataUrl);
+      } else if (mode === "real") {
         r = await mineruRecognize(body.dataUrl);
       } else if (mode === "mock") {
         // 模拟识别（测试加速：150-250ms/张，仅 MINERU_DISABLE=1 或 OCR_ENGINE=mock 时启用）
@@ -697,7 +752,7 @@ function queueOcr(body) {
           : "\\lim_{x \\to 0} \\frac{1 - \\cos x}{x \\sin x}", source: "mock-server" };
       } else {
         // off：生产环境未配置真实 OCR 时明确报错，绝不把模拟文本当真识别结果入库
-        throw new Error("OCR 未配置：服务器未检测到 mineru-open-api。请安装并设置 MINERU_CLI，或显式设置 OCR_ENGINE=mock 使用模拟识别（仅测试用）");
+        throw new Error("OCR 未配置：请设置 MINERU_API_TOKEN（云端 API，推荐，免装本地）或 MINERU_CLI（本地 CLI），或显式设置 OCR_ENGINE=mock 使用模拟识别（仅测试用）");
       }
       ocrTasks.set(taskId, {
         status: "done", finishedAt: Date.now(),
@@ -1545,7 +1600,7 @@ server.listen(PORT, HOST, () => {
   console.log(`版本：v${APP_VERSION} · Node ${process.versions.node} · 绑定 ${HOST}:${PORT}`);
   console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
   console.log(`备份：${BACKUP_DIR} 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
-  console.log(`OCR：${ocrMode === "real" ? "MinerU 真实识别" : ocrMode === "mock" ? "模拟识别（测试）" : "未配置（生产请安装 mineru-open-api 或设 OCR_ENGINE=mock）"}`);
+  console.log(`OCR：${ocrMode === "api" ? "MinerU 云端 API（MINERU_API_TOKEN）" : ocrMode === "real" ? "MinerU 本地 CLI（MINERU_CLI）" : ocrMode === "mock" ? "模拟识别（测试）" : "未配置（设 MINERU_API_TOKEN 或 MINERU_CLI，或 OCR_ENGINE=mock）"}`);
   if (!ALLOW_REGISTER) {
     if (uCount === 0) console.log("⚠ 注册：临时开放（数据库无账号，防止锁死）——请立即注册你的账号，注册后自动关闭");
     else console.log("注册：已关闭（ALLOW_REGISTER=0）");

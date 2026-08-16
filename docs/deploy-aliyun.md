@@ -230,7 +230,15 @@ A：① 确认 `pm2 status` 是 online；② 确认阿里云安全组放行了�
 A：首次启动前没设 `INIT_ADMIN_USER/PASSWORD` 的话不会建你的号。删掉数据库重新来：`rm /opt/mistake-book/mistake-book.db` 然后 `pm2 restart mistake-book`（会重新建号+导词书）。
 
 **Q：OCR 识别报"未配置"？**
-A：正常——服务器没装 MinerU 识别服务。可设 `OCR_ENGINE=mock` 用模拟识别测试流程（正式识别需要装 mineru CLI 并设 `MINERU_CLI`，见 README）。
+A：服务器没装识别服务。**推荐用云端 API 模式（免装 MinerU）**：把第 4 步的环境变量加上你的 MinerU Token 再重启：
+
+```bash
+echo 'export MINERU_API_TOKEN=你的sk-开头的Token' >> ~/.bashrc && source ~/.bashrc
+pm2 delete mistake-book && pm2 start server.js --name mistake-book
+pm2 logs mistake-book | grep OCR    # 应显示「MinerU 云端 API」
+```
+
+> 云端 API 走官方 Agent 通道：**不用装 MinerU、不用下模型**，单张图片 ≤10MB，识别稍慢（约 20~60 秒）但无需在服务器装任何东西。Token 在 https://mineru.net/apiManage/token 获取。没有 Token 也可设 `OCR_ENGINE=mock` 用模拟识别测试流程（不真实识别）。
 
 **Q：热点资讯空白？**
 A：服务器需要能访问外网 `aihot.virxact.com`；出网受限时该模块不可用，不影响其他功能。
