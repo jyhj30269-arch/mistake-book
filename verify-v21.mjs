@@ -1,7 +1,7 @@
 /* v1.21.0 背单词独立页面 + 复习流净化专项检查：node verify-v21.mjs
-   覆盖：侧边栏「背单词」入口（桌面+移动抽屉）/ 独立页面与入口面板可见（模式选择此前不可达）/
+   覆盖：侧边栏「背单词」入口（桌面+移动抽屉）/ 独立页面与入口面板可见 /
    统计口径（未复习新词不计到期、今日新词如实显示）/ 复习流排除词汇类（到期/推荐/抽题/统计/薄弱点）/
-   看义选词清除翻卡残留 / 背单词页快捷键 / 会话退出回到词书页 */
+   面板发音开关与困难单词本入口 / 下一词清空翻卡残留 / 背单词页快捷键 / 会话退出回到词书页 */
 import { startServer, startBrowser, connect, getWsUrl, loginAndReload, makeCheck, EDGE, sleep } from "./test-helper.mjs";
 
 const PORT = 9410;
@@ -22,7 +22,7 @@ try {
   await sleep(2500);
   await loginAndReload(client, PORT);
 
-  // 1) 侧边栏入口（桌面 + 移动抽屉）+ 独立页面可见 + 入口面板可见（v1.20 遗留：面板从未显示）
+  // 1) 侧边栏入口（桌面 + 移动抽屉）+ 独立页面可见 + 入口面板可见
   const nav = await client.evalJS(`(() => {
     const side = !!document.querySelector('.side-nav .nav-item[data-view="wordbook"]');
     const mobile = !!document.querySelector('#mobile-menu .nav-item[data-view="wordbook"]');
@@ -31,7 +31,7 @@ try {
     return { side, mobile, pageShown, cfgShown };
   })()`);
   check("侧边栏：桌面与移动抽屉均有「背单词」入口", nav.side && nav.mobile);
-  check("独立页面：进入后显示词书面板（模式选择可达）", nav.pageShown && nav.cfgShown);
+  check("独立页面：进入后显示词书面板", nav.pageShown && nav.cfgShown);
 
   // 2) 空词书提示
   const emptyHint = await client.evalJS(`document.getElementById("word-config").textContent.includes("一键导入词书")`);
@@ -49,7 +49,7 @@ try {
       return q;
     };
     mk(420001, true); mk(420002, false); mk(420003, false); mk(420004, false); // 1 到期 + 3 新词
-    wordPlan = { newPerDay: 5, mode: "quick" };
+    wordPlan = { newPerDay: 5 };
     renderWordPanel();
     const t = document.getElementById("word-config").textContent;
     const p = wordProgress();
@@ -58,12 +58,13 @@ try {
   check("统计：已学且到期才计「今日到期」（1/4，非 4）", stats.due === 1 && stats.learned === 1 && stats.hasDue);
   check("统计：今日新词如实显示 min(5, 3)=3", stats.hasNew);
 
-  // 4) 模式切换（此前面板不可达 → 无法切换）
-  const mode = await client.evalJS(`(() => {
-    setWordMode("dictation");
-    return { saved: wordPlan.mode === "dictation", chipOn: document.querySelector('#word-mode-pick .chip.on').dataset.v };
+  // 4) 面板：发音开关 + 困难单词本入口
+  const panel = await client.evalJS(`(() => {
+    renderWordPanel();
+    const t = document.getElementById("word-config").textContent;
+    return { hasSound: t.includes("发音"), hasFav: t.includes("复习困难单词") };
   })()`);
-  check("模式切换：点选听写并持久化", mode.saved && mode.chipOn === "dictation");
+  check("面板：含发音开关与困难单词本入口", panel.hasSound && panel.hasFav);
 
   // 5) 复习流排除词汇类：造 1 道普通错题，推荐/到期/抽题/统计/薄弱点都不含单词
   const flow = await client.evalJS(`(() => {
@@ -88,24 +89,28 @@ try {
   check("复习到期题：队列不含单词、含普通错题", !flow.queueHasWord && flow.queueHasQ);
   check("统计：总题数与到期行不含单词", flow.total === String(flow.nonVocab) && !flow.dueLine.includes("3000"));
 
-  // 6) 看义选词清除上一词翻卡残留
+  // 6) 卡片流：下一词渲染清空上一词翻卡残留
   const stale = await client.evalJS(`(() => {
     const first = questions.find(x => x.id === 420001);
-    wordMode = "quick";
     wordQueue = [{ q: first, misses: 0 }]; wordIdx = 0; wordSession = true;
+    document.getElementById("word-play").style.display = "";
     renderWordCard();
     flipWord(); // word-word-big 显示 word420001
     const before = document.getElementById("word-word-big").textContent;
-    wordMode = "word";
-    renderWordCard(); // 选词模式：大字应被清空
+    const second = questions.find(x => x.id === 420002);
+    wordQueue = [{ q: second, misses: 0 }]; wordIdx = 0;
+    renderWordCard(); // 新卡渲染：大字/释义/详情应清空
     const after = document.getElementById("word-word-big").textContent;
-    return { before, after };
+    const meanAfter = document.getElementById("word-mean").textContent;
+    const rateHidden = document.getElementById("word-rate").style.display === "none";
+    wordSession = false;
+    return { before, after, meanAfter, rateHidden };
   })()`);
-  check("看义选词：清除上一词大字残留", stale.before === "word420001" && stale.after === "");
+  check("卡片流：下一词清空上一词大字/释义残留", stale.before === "word420001" && stale.after === "" && stale.meanAfter === "" && stale.rateHidden);
 
   // 7) 背单词页快捷键（空格翻卡）
   const kb = await client.evalJS(`(() => {
-    wordPlan = { newPerDay: 5, mode: "quick" };
+    wordPlan = { newPerDay: 5 };
     startWordReview(); // 当前已在 wordbook 视图
     const shownBefore = document.getElementById("word-back").style.display !== "none";
     document.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));

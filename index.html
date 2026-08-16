@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.21.0 -->
+  <!-- 个人工作台 v1.22.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -319,68 +319,53 @@
           </div>
         </section>
 
-        <!-- ========== 背单词（v1.21 独立页面） ========== -->
+        <!-- ========== 背单词（v1.22 简化卡片流 + 困难单词本 + 数据面板） ========== -->
         <section id="view-wordbook" style="display:none;">
           <div class="topbar">
             <div>
               <div class="page-title">🎴 背单词</div>
-              <div class="page-sub">六级核心词 3000 · 例句语境 · 四种学习模式 · SM-2 间隔重复</div>
+              <div class="page-sub">六级核心词 3000 · 卡片三档自评 · SM-2 间隔重复 · 困难单词本</div>
             </div>
             <div class="topbar-right">
               <span class="tag tag-primary" id="word-page-tag"></span>
             </div>
           </div>
 
-          <!-- 入口面板（词书进度 + 模式选择） -->
+          <!-- 入口面板（词书进度 + 开始 + 困难单词本 + 搜索 + 发音开关） -->
           <div class="card review-card" id="word-config" style="display:none;"></div>
 
-          <!-- 单词卡（例句语境 / 翻卡 / 选义 / 选词 / 听写） -->
+          <!-- 数据记录面板（今日数据 / 每日历史 / 单词状态） -->
+          <div class="card review-card" id="word-data" style="display:none;"></div>
+
+          <!-- 单词卡（看词 → 翻卡 → 三档自评） -->
           <div class="card review-card" id="word-play" style="display:none;">
             <div class="flex-between mb-16">
               <span class="tag" id="word-pos"></span>
               <span class="tag">🎴 背单词</span>
             </div>
-            <!-- 例句语境（新词猜义） -->
-            <div class="word-context" id="word-context" style="display:none;">
-              <div class="small muted mb-8">📖 例句语境</div>
-              <div class="word-context-text" id="word-context-text" style="font-size:19px;line-height:1.8;"></div>
-              <div class="small muted mt-8" id="word-context-hint"></div>
-            </div>
-            <!-- 单词面（快捷/选义） -->
+            <!-- 单词面 -->
             <div class="word-front" id="word-front" style="display:none;">
               <div class="word-word" id="word-word"></div>
               <div class="small muted" id="word-word-ph"></div>
               <button class="btn btn-sm mt-8" onclick="speakWord()">🔊 发音</button>
             </div>
-            <!-- 释义面（快捷翻卡 / 选词模式题干） -->
+            <!-- 释义面（释义 + 例句 + 拓展 + 收藏） -->
             <div class="word-back" id="word-back" style="display:none;">
               <div class="word-word" id="word-word-big" style="font-size:30px;"></div>
               <div id="word-mean" style="font-size:17px;"></div>
-              <div id="word-mean-text" style="font-size:17px;"></div>
               <div id="word-example" class="mt-8"></div>
               <div id="word-detail"></div>
-            </div>
-            <!-- 四选一（选义/选词模式） -->
-            <div id="word-choices" style="display:none;" class="mt-16">
-              <div class="grid grid-2" id="word-choice-list" style="gap:8px;"></div>
-            </div>
-            <!-- 听写模式 -->
-            <div id="word-dictation" style="display:none;" class="mt-16">
-              <div class="small muted mb-8">🔊 听发音，拼写这个单词（大小写不限）：</div>
-              <div class="flex" style="gap:8px;">
-                <input class="input" id="word-dict-input" style="flex:1;font-size:18px;" autocomplete="off" autocapitalize="off" spellcheck="false" onkeydown="if(event.key==='Enter')dictationCheck()" />
-                <button class="btn btn-primary" onclick="dictationCheck()">判定</button>
-                <button class="btn" onclick="speakWord()">🔊 再听一次</button>
+              <div class="mt-8">
+                <button class="btn btn-sm" id="word-fav-btn" onclick="wordFavFromCur()">☆ 收藏困难词</button>
               </div>
-              <div id="word-dict-answer"></div>
             </div>
             <button class="btn btn-lg mt-16" onclick="flipWord()" id="word-show-ans" style="display:none;">翻卡看释义</button>
             <div class="self-rate mt-16" id="word-rate" style="display:none;">
               <button class="rate-btn ok" onclick="wordRate('know')">✅ 认识</button>
               <button class="rate-btn" style="border-color:#F59F00;color:#B97700;" onclick="wordRate('fuzzy')">🟡 模糊</button>
-              <button class="rate-btn no" onclick="wordRate('miss')">❌ 不认识</button>
+              <button class="rate-btn no" onclick="wordRate('miss')">❌ 不会</button>
             </div>
-            <div class="small muted mt-16">快捷键：空格翻卡 · 1/2/3 自评（选义/选词 1-4）· 听写回车判定 · 错误自动回炉</div>
+            <div class="small muted mt-16">快捷键：空格翻卡 · 1/2/3 自评 · 模糊/不会自动回炉</div>
             <div class="divider"></div>
             <button class="btn" onclick="wordExit()">退出背单词</button>
           </div>
@@ -748,6 +733,14 @@
                 <input class="input" type="number" id="wp-new-per-day" min="1" max="500" value="50" style="width:90px;" aria-label="每日新词上限" />
                 <button class="btn btn-primary" onclick="saveWordPlan()">保存</button>
               </div>
+            </div>
+            <div class="divider"></div>
+            <div class="flex-between">
+              <div>
+                <div class="small">单词发音</div>
+                <div class="small muted">背单词时用浏览器 TTS 朗读（新词自动读一次，学习页/搜索/详情可手动发音）</div>
+              </div>
+              <button class="btn" id="wp-sound-switch" onclick="toggleWordSound()">🔊 已开启</button>
             </div>
           </div>
 

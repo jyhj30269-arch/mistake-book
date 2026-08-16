@@ -1247,3 +1247,11 @@ html[data-theme="dark"] .login-card input:-webkit-autofill {
 .word-word-ph { margin-top: 6px; }
 .choice-btn { justify-content: flex-start; text-align: left; white-space: normal; line-height: 1.5; height: auto; padding: 10px 14px; }
 .choice-btn:hover { border-color: var(--primary); color: var(--primary-dark); }
+
+/* ============ v1.22 背单词重构（数据面板 / 搜索 / 状态列表） ============ */
+.word-row:hover { background: var(--hover); border-radius: 6px; }
+.word-hist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.word-hist-table th, .word-hist-table td { padding: 4px 10px; text-align: center; border-bottom: 1px solid var(--border); }
+.word-hist-table th { color: var(--text-3); font-weight: 500; }
+.word-hist-table tr:last-child td { border-bottom: none; }
+.word-hist-table td:first-child { text-align: left; color: var(--text-2); }

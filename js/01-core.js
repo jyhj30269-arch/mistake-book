@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.21.0 · 01-core.js（由 app.js 拆分）
+   个人工作台 v1.22.0 · 01-core.js（由 app.js 拆分）
    工具函数与全局常量（$ / esc / toast / 弹窗 / KaTeX 渲染 / TAGS / LV）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -127,5 +127,5 @@ const LV = {
 const OK_TRACK = ["yellow", "green", "blue"];
 const ERR_TRACK = ["orange", "red", "darkred"];
 const DECAY_DAYS = 7; // 超过 7 天未复习，展示等级降一档
-const APP_VERSION = "1.21.0";
+const APP_VERSION = "1.22.0";
 

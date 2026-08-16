@@ -53,6 +53,9 @@ jobs:
       - name: v1.20.0 背单词升级验证
         run: node verify-v20.mjs
 
+      - name: v1.22.0 背单词重构验证
+        run: node verify-v22.mjs
+
       - name: 全页面走查
         run: node verify-sweep.mjs
 

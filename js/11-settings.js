@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.20.0 · 11-settings.js（由 app.js 拆分）
+   个人工作台 v1.22.0 · 11-settings.js（由 app.js 拆分）
    设置（提醒/主题开关/OCR 配置/知识点管理/导出导入 CSV/备份恢复）
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -77,6 +77,8 @@ function renderSettings() {
   if (awayEl) awayEl.value = study.awayPolicy || "auto";
   const wpEl = $("#wp-new-per-day");
   if (wpEl) wpEl.value = (wordPlan && wordPlan.newPerDay) || 50;
+  const wss = $("#wp-sound-switch");
+  if (wss) wss.textContent = wordSoundOn() ? "🔊 已开启" : "🔇 已关闭";
   loadOcrConfig();
   renderSettingsTree();
 }
