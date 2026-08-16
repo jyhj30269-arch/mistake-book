@@ -25,17 +25,22 @@ function wordQuestions() {
   return questions.filter(q => q.type === "vocabulary" && q.subject === "subj-eng" &&
     q.subSubject === "ss-word" && q.chapter === WORD_BOOK_ID);
 }
-/* 三档统计：认识（ok）/ 模糊（half）/ 不认识（fail），按每词最后一条自评 */
+/* 三档统计：认识（ok）/ 模糊（half）/ 不认识（fail），按每词最后一条自评
+   due 只计「已学且到期且未掌握」——已掌握（连续答对）的词移出复习队列，与「开始复习」按钮口径一致 */
 function wordProgress() {
   const list = wordQuestions();
   const last = {};
   reviewLogs.forEach(l => { if (list.some(q => q.id === l.qid)) last[l.qid] = l.result; });
-  // 今日到期只统计「已学过且已到期」的词（未复习的新词不算到期，避免刚导入就显示全部到期）
-  const stat = { know: 0, fuzzy: 0, miss: 0, total: list.length, learned: Object.keys(last).length, due: list.filter(q => logsOf(q.id).length > 0 && isDue(q.id)).length };
+  const stat = { know: 0, fuzzy: 0, miss: 0, mastered: 0, total: list.length, learned: Object.keys(last).length,
+    due: 0 };
   Object.values(last).forEach(r => {
     if (r === "ok") stat.know++;
     else if (r === "half") stat.fuzzy++;
     else stat.miss++;
+  });
+  list.forEach(q => {
+    if (isMastered(q.id)) stat.mastered++;
+    else if (logsOf(q.id).length > 0 && isDue(q.id)) stat.due++;
   });
   return stat;
 }
@@ -208,24 +213,90 @@ function wordFavFromId(qid) {
   toggleWordFav(questions.find(x => x.id === qid));
 }
 
-/* 单独复习困难单词本：全部收藏词（不分到期与否） */
+/* 单独复习困难单词本：全部收藏词（不分到期与否，乱序） */
 function reviewFavs() {
   const list = wordFavList();
   if (!list.length) { toast("困难单词本还是空的：学习时翻卡后点「☆ 收藏困难词」即可加入", "error"); return; }
   if (currentView !== "wordbook") go("wordbook");
-  wordQueue = list.map(q => ({ q, misses: 0 }));
+  wordQueue = shuffle(list.map(q => ({ q, misses: 0 })));
   wordIdx = 0;
   wordStats = { know: 0, fuzzy: 0, miss: 0 };
   wordSession = true;
+  wordSessionKind = "fav";
   showWordPlay();
   renderWordCard();
 }
 
-/* ---------- 单词卡（单一卡片流：看词 → 翻卡 → 三档自评 / 下一个） ---------- */
+/* ---------- 单词卡（学习 / 复习双队列 · 改良艾宾浩斯调度 · 乱序） ---------- */
 let wordQueue = [];   // [{ q, misses }]
 let wordIdx = 0;
 let wordStats = { know: 0, fuzzy: 0, miss: 0 };
 let wordSession = false;
+let wordSessionKind = "learn"; // learn（新词）| review（到期复习）| fav（困难单词本）
+
+/* Fisher-Yates 乱序（原地，返回原数组） */
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/* 是否已掌握：连续答对 3 次（LV blue「完全掌握」）→ 移出复习队列，不再打扰 */
+function isMastered(qid) {
+  return computeMastery(qid).lv.key === "blue";
+}
+
+/* 到期复习词：已学 && 到期 && 未掌握；按到期紧急度分组（同日乱序，跨日仍最急在前） */
+function dueReviewWords() {
+  const list = wordQuestions().filter(q => logsOf(q.id).length > 0 && isDue(q.id) && !isMastered(q.id));
+  list.sort((a, b) => scheduleOf(a.id).dueAt - scheduleOf(b.id).dueAt);
+  // 按到期日分组，组内乱序（不按字母/导入顺序）
+  const groups = [];
+  let cur = [], curDay = null;
+  list.forEach(q => {
+    const d = fmtDate(scheduleOf(q.id).dueAt);
+    if (curDay !== d) { if (cur.length) groups.push(cur); cur = []; curDay = d; }
+    cur.push(q);
+  });
+  if (cur.length) groups.push(cur);
+  return groups.reduce((acc, g) => acc.concat(shuffle(g)), []);
+}
+
+/* 学习 = 今日新词（每日上限，乱序） */
+function startWordLearn() {
+  const list = wordQuestions();
+  if (!list.length) { toast("词书还是空的：去 设置 → 📚 背单词 导入六级核心词 3000，或批量粘贴自定义词表", "error"); return; }
+  const fresh = list.filter(q => logsOf(q.id).length === 0);
+  const newLimit = Math.max(1, (wordPlan && wordPlan.newPerDay) || 50);
+  const freshTake = shuffle(fresh.slice(0, newLimit));
+  if (!freshTake.length) { toast("今天的新词已经学完了 🎉 点「开始复习」复习到期词", "success"); return; }
+  if (currentView !== "wordbook") go("wordbook");
+  wordQueue = freshTake.map(q => ({ q, misses: 0 }));
+  wordIdx = 0;
+  wordStats = { know: 0, fuzzy: 0, miss: 0 };
+  wordSession = true;
+  wordSessionKind = "learn";
+  showWordPlay();
+  renderWordCard();
+}
+
+/* 复习 = 今日到期词（改良艾宾浩斯：ok/half/fail 各自推进下次间隔；掌握词已移出） */
+function startWordReview() {
+  const list = wordQuestions();
+  if (!list.length) { toast("词书还是空的：去 设置 → 📚 背单词 导入六级核心词 3000，或批量粘贴自定义词表", "error"); return; }
+  const due = dueReviewWords();
+  if (!due.length) { toast("今日复习完成 🎉 没有到期的复习词了", "success"); return; }
+  if (currentView !== "wordbook") go("wordbook");
+  wordQueue = due.map(q => ({ q, misses: 0 }));
+  wordIdx = 0;
+  wordStats = { know: 0, fuzzy: 0, miss: 0 };
+  wordSession = true;
+  wordSessionKind = "review";
+  showWordPlay();
+  renderWordCard();
+}
 
 /* ---------- 独立页面入口（侧边栏「🎴 背单词」下拉子菜单） ---------- */
 function openWordbook(tab) {
@@ -277,24 +348,6 @@ function showWordPlay() {
   const play = $("#word-play"), done = $("#word-done");
   if (play) play.style.display = "";
   if (done) done.style.display = "none";
-}
-
-/* 队列 = 到期复习词（SM-2，仅已有记录的词）→ 新词补足每日上限 */
-function startWordReview() {
-  const list = wordQuestions();
-  if (!list.length) { toast("词书还是空的：去 设置 → 📚 背单词 导入六级核心词 3000，或批量粘贴自定义词表", "error"); return; }
-  const due = list.filter(q => logsOf(q.id).length > 0 && isDue(q.id)).sort((a, b) => scheduleOf(a.id).dueAt - scheduleOf(b.id).dueAt);
-  const fresh = list.filter(q => logsOf(q.id).length === 0).sort((a, b) => a.createdAt - b.createdAt);
-  const newLimit = Math.max(1, (wordPlan && wordPlan.newPerDay) || 50);
-  const freshTake = fresh.slice(0, newLimit);
-  if (!due.length && !freshTake.length) { toast("今日单词已全部完成 🎉 明天再来", "success"); return; }
-  if (currentView !== "wordbook") go("wordbook");
-  wordQueue = [...due, ...freshTake].map(q => ({ q, misses: 0 }));
-  wordIdx = 0;
-  wordStats = { know: 0, fuzzy: 0, miss: 0 };
-  wordSession = true;
-  showWordPlay();
-  renderWordCard();
 }
 
 function renderWordCard() {
@@ -386,13 +439,16 @@ function finishWordSession() {
     if (el) el.style.display = "none";
   });
   const total = wordStats.know + wordStats.fuzzy + wordStats.miss;
+  const title = { learn: "🎉 本轮学习完成", review: "🎉 本轮复习完成", fav: "🎉 困难单词复习完成" }[wordSessionKind] || "🎉 本轮完成";
+  const dt = $("#word-done-title");
+  if (dt) dt.textContent = title;
   $("#word-done-stats").innerHTML = `
     <div class="grid grid-3">
       <div class="stat-card"><div class="stat-label">✅ 认识</div><div class="stat-value" style="color:var(--success);">${wordStats.know}</div></div>
       <div class="stat-card"><div class="stat-label">🟡 模糊（已回炉）</div><div class="stat-value" style="color:#B97700;">${wordStats.fuzzy}</div></div>
       <div class="stat-card"><div class="stat-label">❌ 不会（已回炉）</div><div class="stat-value" style="color:var(--danger);">${wordStats.miss}</div></div>
     </div>
-    <div class="small muted mt-8">本轮 ${total} 词 · 模糊/不会的词本轮已重新过一遍 · 结果已计入间隔重复调度（明天优先复习）</div>`;
+    <div class="small muted mt-8">本轮 ${total} 词 · 模糊/不会的词本轮已重新过一遍 · 结果已计入间隔重复调度（下次复习间隔随反馈变化，连续答对 3 次判为掌握、不再进入复习队列）</div>`;
   renderWordPanel();
 }
 
@@ -442,6 +498,7 @@ function learnWordNow(qid) {
   wordIdx = 0;
   wordStats = { know: 0, fuzzy: 0, miss: 0 };
   wordSession = true;
+  wordSessionKind = "learn";
   showWordPlay();
   renderWordCard();
 }
@@ -682,9 +739,12 @@ function renderWordPanel() {
       <div class="word-hero">
         <div class="word-hero-main">
           <div class="word-hero-num">已学 <b>${p.learned}</b> / ${p.total} 词</div>
-          <div class="small muted mt-4">今日到期 <b>${p.due}</b> 词 · 今日新词 <b>${todayNew}</b>/${limit} · ✅${p.know} 🟡${p.fuzzy} ❌${p.miss}</div>
+          <div class="small muted mt-4">今日到期 <b>${p.due}</b> 词 · 今日新词 <b>${todayNew}</b>/${limit} · ✅已掌握 ${p.mastered} · 🟡${p.fuzzy} ❌${p.miss}</div>
         </div>
-        <button class="btn btn-primary btn-lg" onclick="startWordReview()">▶ 开始背单词</button>
+        <div class="flex" style="gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-lg" onclick="startWordLearn()" title="学今日新词（每日上限 ${limit}，乱序）">📖 开始学习</button>
+          <button class="btn btn-lg" onclick="startWordReview()" title="复习今日到期词（按遗忘曲线间隔，已掌握的不再出现）">🔁 开始复习${p.due ? `（${p.due}）` : ""}</button>
+        </div>
       </div>
       ${p.total === 0 ? `
         <div class="alert alert-warn mt-8">
@@ -701,7 +761,7 @@ function renderWordPanel() {
           <button class="btn" onclick="toggleWordSound()" title="发音开关">${soundOn ? "🔊 发音：开" : "🔇 发音：关"}</button>
         </div>
       </div>
-      <div class="small muted mt-8">卡片：看词 → 空格翻卡（释义/例句/拓展）→ 认识/模糊/不会 三档自评，或直接点「下一个 ›」连续过词（记认识）；模糊/不会自动回炉，结果计入间隔重复。收藏的困难词仍参与正常复习。</div>`;
+      <div class="small muted mt-8">📖 学习 = 今日新词（乱序）· 🔁 复习 = 今日到期词（改良艾宾浩斯：认识/模糊/不会自动安排下次复习间隔，连续答对 3 次判为掌握、移出复习队列）。卡片：看词 → 空格翻卡 → 认识/模糊/不会 或「下一个 ›」连续过词；模糊/不会自动回炉。</div>`;
   }
   renderWordData();
 }
@@ -720,6 +780,7 @@ function saveWordPlan() {
 window.openWordbook = openWordbook;
 window.toggleWordSub = toggleWordSub;
 window.showWordTab = showWordTab;
+window.startWordLearn = startWordLearn;
 window.startWordReview = startWordReview;
 window.reviewFavs = reviewFavs;
 window.nextWord = nextWord;

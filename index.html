@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.23.0 -->
+  <!-- 个人工作台 v1.24.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -398,11 +398,11 @@
 
           <!-- 本轮小结 -->
           <div class="card review-card" id="word-done" style="display:none;">
-            <div class="card-head"><div class="card-title">🎉 本轮背词完成</div></div>
+            <div class="card-head"><div class="card-title" id="word-done-title">🎉 本轮背词完成</div></div>
             <div id="word-done-stats"></div>
             <div class="flex mt-16">
-              <button class="btn btn-primary" onclick="startWordReview()">再背一轮</button>
-              <button class="btn" onclick="openWordbook()">返回词书</button>
+              <button class="btn btn-primary" onclick="openWordbook()">返回词书</button>
+              <button class="btn" onclick="showWordTab('data')">📊 查看学习记录</button>
             </div>
           </div>
         </section>

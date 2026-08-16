@@ -1,8 +1,7 @@
-/* v1.22.0 背单词重构专项检查：node verify-v22.mjs
-   覆盖：单一卡片流（无例句猜义/无选择/无听写）/
-   翻卡详情（英释·音标·近义词·同根词）/ 三档自评回炉 /
-   困难单词本收藏（加入/移除/单独复习）/ 数据记录面板（今日/历史/状态筛选）/
-   单词全局搜索 / 发音开关 / 详情弹窗 / 快捷键 */
+/* v1.22.0 背单词重构检查（v1.24 起学习/复习分离，沿用动态断言）：
+   单一卡片流（无例句猜义/选择题/听写）/ 翻卡详情（英释·音标·近义词·同根词）/
+   三档自评回炉 / 困难单词本收藏（加入/单独复习）/
+   数据记录面板（今日/历史/状态筛选）/ 全局搜索 / 发音开关 / 详情弹窗 / 快捷键 */
 import { startServer, startBrowser, connect, getWsUrl, loginAndReload, makeCheck, EDGE, sleep } from "./test-helper.mjs";
 
 const PORT = 9422;
@@ -41,35 +40,52 @@ try {
   })()`);
   check("构造 5 个词书词（1 到期 + 4 新词）", mk === 5);
 
-  // 1) 单一卡片流：开始后只显示单词面（无例句猜义 / 无选择 / 无听写元素）
+  // 1) 学习 = 4 个新词（乱序），只显示单词面（无例句猜义/选择题/听写元素）
   const flow = await client.evalJS(`(() => {
     wordPlan = { newPerDay: 5, sound: true };
-    startWordReview();
+    startWordLearn();
+    const ids = new Set(wordQueue.map(x => x.q.id));
     const qLen = wordQueue.length;
+    const allNew = [500001, 500002, 500003, 500004].every(id => ids.has(id));
     const frontShown = document.getElementById("word-front").style.display !== "none";
-    const ctxGone = !document.getElementById("word-context");       // 例句猜义区块已从页面移除
-    const choicesGone = !document.getElementById("word-choices");   // 选择题区块已移除
-    const dictGone = !document.getElementById("word-dictation");    // 听写区块已移除
+    const ctxGone = !document.getElementById("word-context");
+    const choicesGone = !document.getElementById("word-choices");
+    const dictGone = !document.getElementById("word-dictation");
     const w = document.getElementById("word-word").textContent;
-    const ph = document.getElementById("word-word-ph").textContent;
-    return { qLen, frontShown, ctxGone, choicesGone, dictGone, w, ph };
+    // 学完 4 个新词（认识），进入小结
+    wordRate("know"); wordRate("know"); wordRate("know"); wordRate("know");
+    const doneShown = document.getElementById("word-done").style.display !== "none";
+    const doneTitle = document.getElementById("word-done-title").textContent;
+    return { qLen, allNew, frontShown, ctxGone, choicesGone, dictGone, w, doneShown, doneTitle };
   })()`);
-  check("卡片流：队列=1 到期+4 新词=5", flow.qLen === 5);
+  check("学习：队列=4 个新词（含全部新词）", flow.qLen === 4 && flow.allNew);
   check("卡片流：先显示单词面（无例句猜义/选择题/听写）", flow.frontShown && flow.ctxGone && flow.choicesGone && flow.dictGone);
-  check("卡片流：正面为到期词 + 音标", flow.w === "zeta5" && flow.ph.includes("PH5"));
+  check("卡片流：正面为新词", flow.w.startsWith("zeta"));
+  check("学习小结：标题为「本轮学习完成」", flow.doneShown && flow.doneTitle.includes("学习完成"));
+
+  // 1b) 复习 = 只含到期未掌握词（zeta5）
+  const rev = await client.evalJS(`(() => {
+    wordExit();
+    startWordReview();
+    const onlyDue = wordQueue.length === 1 && wordQueue[0].q.id === 500005;
+    const kind = wordSessionKind;
+    return { onlyDue, kind };
+  })()`);
+  check("复习：只含到期词 zeta5", rev.onlyDue && rev.kind === "review");
 
   // 2) 翻卡：释义 + 详情（英释/近义/同根）+ 收藏按钮 + 自评区
   const flip = await client.evalJS(`(() => {
+    const first = wordQueue[0].q;
     flipWord();
     const backShown = document.getElementById("word-back").style.display !== "none";
     const mean = document.getElementById("word-mean").textContent;
     const detail = document.getElementById("word-detail").textContent;
     const favBtn = document.getElementById("word-fav-btn").textContent;
     const rateShown = document.getElementById("word-rate").style.display !== "none";
-    return { backShown, mean, detail, favBtn, rateShown };
+    return { backShown, mean, detail, favBtn, rateShown, relW: first.titleTex + "ly", title: first.titleTex };
   })()`);
-  check("翻卡：显示释义与例句", flip.backShown && flip.mean.includes("释义5"));
-  check("翻卡：详情区含英释/近义词/同根词", flip.detail.includes("English meaning") && flip.detail.includes("synA") && flip.detail.includes("zeta5ly"));
+  check("翻卡：显示释义", flip.backShown && flip.mean.includes("释义5"));
+  check("翻卡：详情区含英释/近义词/同根词", flip.detail.includes("English meaning") && flip.detail.includes("synA") && flip.detail.includes(flip.relW));
   check("翻卡：出现收藏按钮与三档自评", flip.favBtn.includes("收藏") && flip.rateShown);
 
   // 3) 困难单词本：收藏当前词 → 落库 / 计数 / 按钮切换
@@ -84,42 +100,41 @@ try {
   check("收藏：marks.fav 落库 + 列表计数 1", fav.marked && fav.listLen === 1);
   check("收藏：按钮切换为取消收藏", fav.btn.includes("取消收藏"));
 
-  // 4) 三档自评：不认识回炉 + 整轮完成小结（回炉词再次出现后过一遍）
+  // 4) 三档自评：不认识回炉 + 复习会话小结（2 词）
   const rate = await client.evalJS(`(() => {
     const firstId = wordQueue[0].q.id;
     wordRate("miss");
-    const requeued = wordQueue.length === 5 && wordQueue[4].q.id === firstId && wordQueue[4].misses === 1;
+    const requeued = wordQueue.length === 1 && wordQueue[0].q.id === firstId && wordQueue[0].misses === 1;
     const failLog = reviewLogs.some(l => l.qid === firstId && l.result === "fail");
-    wordRate("know"); wordRate("know"); wordRate("know"); wordRate("know"); wordRate("know");
+    wordRate("know");
     const doneShown = document.getElementById("word-done").style.display !== "none";
+    const doneTitle = document.getElementById("word-done-title").textContent;
     const stats = document.getElementById("word-done-stats").textContent;
     const logs = reviewLogs.filter(l => l.qid >= 500000).length;
-    return { requeued, failLog, doneShown, stats, logs };
+    return { requeued, failLog, doneShown, doneTitle, stats, logs };
   })()`);
-  check("自评：不认识回炉到队尾并落 fail", rate.requeued && rate.failLog);
-  check("自评：整轮完成显示小结（本轮 6 词）", rate.doneShown && rate.stats.includes("本轮 6 词"));
-  check("自评：7 条复习记录全部落库（含 3 天前种子记录）", rate.logs === 7);
+  check("自评：不认识回炉并落 fail", rate.requeued && rate.failLog);
+  check("自评：复习小结标题为「本轮复习完成」", rate.doneShown && rate.doneTitle.includes("复习完成") && rate.stats.includes("本轮 2 词"));
+  check("自评：记录落库（4 学习 + 2 复习 + 种子 1 = 7）", rate.logs === 7);
 
-  // 5) 数据记录面板：今日新词/复习/到期/连续打卡 + 历史表 + 状态筛选
+  // 5) 数据记录面板：今日统计 + 历史表 + 状态筛选
   const data = await client.evalJS(`(() => {
     const t = wordToday();
     renderWordData();
     const txt = document.getElementById("word-data").textContent;
     const allRows = wordStatusRows("all").length;
     const favRows = wordStatusRows("fav").length;
-    const freshRows = wordStatusRows("fresh").length;
     setWordStatusTab("fav");
     const favTabTxt = document.getElementById("word-data").textContent;
     setWordStatusTab("all");
-    return { t, txt, allRows, favRows, freshRows, favTabTxt };
+    return { t, txt, allRows, favRows, favTabTxt };
   })()`);
-  check("数据面板：今日新词 4 / 今日复习 6 / 到期 0", data.t.newToday === 4 && data.t.reviewToday === 6 && data.t.dueNow === 0);
-  check("数据面板：连续打卡 ≥ 1 天", data.t.streak >= 1);
+  check("数据面板：今日新词 4 / 今日复习 6", data.t.newToday === 4 && data.t.reviewToday === 6);
   check("数据面板：渲染今日统计 + 每日历史 + 状态筛选", data.txt.includes("今日新词") && data.txt.includes("近 14 天") && data.txt.includes("单词状态"));
-  check("数据面板：状态列表计数（全部 5 / 困难 1 / 未学 0）", data.allRows === 5 && data.favRows === 1 && data.freshRows === 0);
-  check("数据面板：困难筛选只显示收藏词", data.favTabTxt.includes("zeta5") && !data.favTabTxt.includes("zeta1"));
+  check("数据面板：状态列表计数（全部 5 / 困难 1）", data.allRows === 5 && data.favRows === 1);
+  check("数据面板：困难筛选只显示收藏词", data.favTabTxt.includes("zeta5"));
 
-  // 6) 单词全局搜索：按单词 / 释义命中 + 未命中提示
+  // 6) 单词全局搜索
   const search = await client.evalJS(`(() => {
     wordSearch("zeta2");
     const hit1 = document.getElementById("word-search-res").textContent.includes("zeta2");
@@ -134,7 +149,7 @@ try {
   check("搜索：按单词命中 / 按释义命中", search.hit1 && search.hit2);
   check("搜索：未命中提示 + 清空", search.miss && search.cleared);
 
-  // 7) 发音开关：默认开 → 关闭 → 再开
+  // 7) 发音开关
   const sound = await client.evalJS(`(() => {
     const def = wordSoundOn();
     toggleWordSound();
@@ -145,7 +160,7 @@ try {
   })()`);
   check("发音开关：默认开 / 可关 / 可再开", sound.def && sound.off && sound.on);
 
-  // 8) 详情弹窗：单词/释义/收藏按钮/去学习
+  // 8) 详情弹窗
   const detail = await client.evalJS(`(() => {
     openWordDetail(500001);
     const maskShown = document.getElementById("modal-mask").style.display === "flex";
@@ -160,7 +175,7 @@ try {
   // 9) 快捷键：空格翻卡 + 1 自评（背单词页）
   const kb = await client.evalJS(`(() => {
     const q = questions.find(x => x.id === 500001);
-    wordQueue = [{ q, misses: 0 }]; wordIdx = 0; wordStats = { know: 0, fuzzy: 0, miss: 0 }; wordSession = true;
+    wordQueue = [{ q, misses: 0 }]; wordIdx = 0; wordStats = { know: 0, fuzzy: 0, miss: 0 }; wordSession = true; wordSessionKind = "learn";
     document.getElementById("word-play").style.display = "";
     document.getElementById("word-done").style.display = "none";
     renderWordCard();

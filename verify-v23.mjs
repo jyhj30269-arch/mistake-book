@@ -72,22 +72,26 @@ try {
     });
     [1, 2, 3].forEach(i => questions.push(mkq(i)));
     wordPlan = { newPerDay: 3, tab: "learn", sound: false };
-    startWordReview();
+    startWordLearn();
     const qLen0 = wordQueue.length;
+    const all3 = [600001, 600002, 600003].every(id => wordQueue.some(x => x.q.id === id));
     const hasNextBtn = document.getElementById("word-play").textContent.includes("下一个");
+    const firstId = wordQueue[0].q.id;
     nextWord(); // 记认识并出队
     const qLen1 = wordQueue.length;
-    const ok1 = reviewLogs.filter(l => l.qid === 600001 && l.result === "ok").length;
+    const ok1 = reviewLogs.filter(l => l.qid === firstId && l.result === "ok").length;
+    const secondId = wordQueue[0].q.id;
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
     const qLen2 = wordQueue.length;
-    const ok2 = reviewLogs.filter(l => l.qid === 600002 && l.result === "ok").length;
+    const ok2 = reviewLogs.filter(l => l.qid === secondId && l.result === "ok").length;
+    const thirdId = wordQueue[0].q.id;
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     const qLen3 = wordQueue.length;
-    const ok3 = reviewLogs.filter(l => l.qid === 600003 && l.result === "ok").length;
+    const ok3 = reviewLogs.filter(l => l.qid === thirdId && l.result === "ok").length;
     wordExit();
-    return { qLen0, hasNextBtn, qLen1, ok1, qLen2, ok2, qLen3, ok3 };
+    return { qLen0, all3, hasNextBtn, qLen1, ok1, qLen2, ok2, qLen3, ok3 };
   })()`);
-  check("学习：3 个新词入队 + 卡片含「下一个」按钮", flow.qLen0 === 3 && flow.hasNextBtn);
+  check("学习：3 个新词入队 + 卡片含「下一个」按钮", flow.qLen0 === 3 && flow.all3 && flow.hasNextBtn);
   check("下一个：按钮记认识并出队", flow.qLen1 === 2 && flow.ok1 === 1);
   check("下一个：N 与 → 快捷键连续过词", flow.qLen2 === 1 && flow.qLen3 === 0 && flow.ok2 === 1 && flow.ok3 === 1);
 

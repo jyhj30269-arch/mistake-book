@@ -71,7 +71,7 @@ try {
     };
     mk(1, true); mk(2, false); mk(3, false); mk(4, false); mk(5, false);
     wordPlan = { newPerDay: 2 };
-    startWordReview();
+    startWordLearn();
     const qLen = wordQueue.length;
     const firstIsFresh = wordQueue.every(x => x.q.titleTex !== "word1"); // 到期词 word1 刚复习过未到期 → 不应在队列
     const playShown = document.getElementById("word-play").style.display !== "none";

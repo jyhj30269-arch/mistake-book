@@ -59,6 +59,9 @@ jobs:
       - name: v1.23.0 背单词下拉子菜单验证
         run: node verify-v23.mjs
 
+      - name: v1.24.0 学习/复习分离验证
+        run: node verify-v24.mjs
+
       - name: 全页面走查
         run: node verify-sweep.mjs
 

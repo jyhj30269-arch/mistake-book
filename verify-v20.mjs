@@ -36,15 +36,16 @@ try {
   })()`);
   check("构造 3 个词书词", mk === 3);
 
-  // 1) 翻卡详情区（单一卡片流：看词 → 翻卡 → 详情）
+  // 1) 翻卡详情区（开始学习：看词 → 翻卡 → 详情）
   const quick = await client.evalJS(`(() => {
     wordPlan = { newPerDay: 10, sound: false };
-    startWordReview();
+    startWordLearn();
+    const first = wordQueue[0].q;
     const frontShown = document.getElementById("word-front").style.display !== "none";
     flipWord();
     const backShown = document.getElementById("word-back").style.display !== "none";
     const detail = document.getElementById("word-detail").textContent;
-    return { frontShown, backShown, detailHas: detail.includes("English meaning") && detail.includes("synA") && detail.includes("alpha1ly") };
+    return { frontShown, backShown, title: first.titleTex, detailHas: detail.includes("English meaning") && detail.includes("synA") && detail.includes(first.titleTex + "ly") };
   })()`);
   check("卡片流：先看词再翻卡", quick.frontShown && quick.backShown);
   check("翻卡：详情区含英释/近义/同根", quick.detailHas);
