@@ -1,7 +1,9 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.25.1）
+   个人工作台 · 本地服务（v1.25.2）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.25.2：云端一键部署——INIT_ADMIN_USER/INIT_ADMIN_PASSWORD 首次建号 /
+   AUTO_IMPORT_WORDS=1 自动导入内置 3000 词（clone 后无需手动点导入）。
    v1.25.1：上传目录（UPLOAD_DIR）跟随数据库所在目录——测试用临时库时自动隔离，
    重置不再误清真实上传文件。
    v1.25.0：全面排查修复——部署安全（HOST/COOKIE_SECURE/注册开关/演示账号开关/
@@ -257,17 +259,67 @@ function seedIfEmpty() {
 }
 seedIfEmpty();
 
-/* 演示账号：users 表为空时创建（与题库种子独立，已有数据库也会补建）。
-   公网部署建议 DISABLE_DEMO_ACCOUNT=1：不创建已知口令的演示账号，避免 admin/admin123 直接登录 */
+/* 账号初始化：users 表为空时创建。
+   优先级：INIT_ADMIN_USER/INIT_ADMIN_PASSWORD（云端一键建号，公网推荐）> 演示账号 admin/admin123（本地）
+   DISABLE_DEMO_ACCOUNT=1 时不再创建演示账号（公网必配，防 admin/admin123 直接登录） */
 function seedUsersIfEmpty() {
   const n = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
-  if (n === 0 && !DISABLE_DEMO_ACCOUNT) {
+  if (n > 0) return;
+  const initUser = String(process.env.INIT_ADMIN_USER || "").trim();
+  const initPass = String(process.env.INIT_ADMIN_PASSWORD || "");
+  if (initUser && initPass) {
+    if (!/^[\w\u4e00-\u9fa5-]{3,20}$/.test(initUser)) {
+      console.warn("INIT_ADMIN_USER 格式非法（需 3-20 位字母/数字/中文/下划线），已忽略，请修正后重启");
+    } else if (initPass.length < 6 || initPass.length > 64) {
+      console.warn("INIT_ADMIN_PASSWORD 需 6-64 位，已忽略，请修正后重启");
+    } else {
+      db.prepare("INSERT INTO users(username, password_hash, created_at) VALUES (?,?,?)")
+        .run(initUser, hashPassword(initPass), Date.now());
+      console.log(`已创建初始账号：${initUser}（来自 INIT_ADMIN_USER/INIT_ADMIN_PASSWORD）`);
+      return;
+    }
+  }
+  if (!DISABLE_DEMO_ACCOUNT) {
     db.prepare("INSERT INTO users(username, password_hash, created_at) VALUES (?,?,?)")
       .run("admin", hashPassword("admin123"), Date.now());
-    console.log("已创建演示账号：admin / admin123（可在登录页注册新账号；公网部署请设 DISABLE_DEMO_ACCOUNT=1 并自行建号）");
+    console.log("已创建演示账号：admin / admin123（可在登录页注册新账号；公网部署请设 DISABLE_DEMO_ACCOUNT=1 + INIT_ADMIN_USER/INIT_ADMIN_PASSWORD）");
   }
 }
 seedUsersIfEmpty();
+
+/* 自动导入内置词书：AUTO_IMPORT_WORDS=1 且词书章节为空时（云端 clone 后一键就绪，无需手动点导入） */
+function autoImportWordbookIfEnabled() {
+  if (process.env.AUTO_IMPORT_WORDS !== "1") return;
+  const n = db.prepare("SELECT COUNT(*) AS n FROM questions WHERE type='vocabulary' AND subject='subj-eng' AND sub_subject='ss-word' AND chapter='ch-w2'").get().n;
+  if (n > 0) return; // 已导入过，不重复
+  try {
+    const words = JSON.parse(fs.readFileSync(path.join(ROOT, "wordlists", "cet6-3000.json"), "utf8"));
+    if (!Array.isArray(words) || !words.length) throw new Error("词书内容为空");
+    // 确保知识点树存在词书章节 ch-w2（英语 → 单词 → 六级核心词 3000）
+    const hasNode = db.prepare("SELECT 1 FROM nodes WHERE id = 'ch-w2'").get();
+    if (!hasNode) {
+      db.prepare("INSERT OR IGNORE INTO nodes(id, parent_id, name, kind, ord) VALUES ('ch-w2', 'ss-word', '六级核心词 3000', 'chapter', 5000)").run();
+    }
+    const now = Date.now();
+    const insQ = db.prepare(`INSERT OR IGNORE INTO questions
+      (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
+       wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate, imgs)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    db.exec("BEGIN");
+    try {
+      words.forEach((w, i) => {
+        insQ.run(200000 + i + 1, "vocabulary", "subj-eng", "ss-word", "ch-w2",
+          JSON.stringify(["六级核心词 3000"]), JSON.stringify(["other"]), w.w,
+          w.t + (w.ph ? "  ［" + w.ph + "］" : ""), "",
+          [w.e, w.ec].filter(Boolean).join("\n"),
+          JSON.stringify({ te: w.te || "", uk: w.uk || "", ph: w.ph || "", syn: w.syn || [], rel: w.rel || [] }),
+          now + i, 0, 0, 0, "[]");
+      });
+      db.exec("COMMIT");
+      console.log(`AUTO_IMPORT_WORDS=1：已自动导入内置词书 ${words.length} 词`);
+    } catch (e) { db.exec("ROLLBACK"); throw e; }
+  } catch (e) { console.warn("自动导入词书失败（可启动后在 设置 → 背单词 手动导入）：", e.message); }
+}
 
 /* 知识点树升级（v1.16.0）：检测到旧版树（缺完整章节体系）时整树替换为种子树。
    题目数据不受影响；用户自定义节点会被重置（单用户工具，升级日志会说明）。 */
@@ -312,6 +364,7 @@ function autoBackup() {
   } catch (e) { console.warn("自动备份失败（可忽略）：", e.message); }
 }
 autoBackup();
+autoImportWordbookIfEnabled();
 
 /* ---------- 数据组装 ---------- */
 function flattenTree() {

@@ -4,10 +4,12 @@
 
 ## 版本
 
-- 当前版本：**v1.25.1**
+- 当前版本：**v1.25.2**
 - 版本规则见 `AGENTS.md`：每次修改代码必须升级版本号并推送到 GitHub。
 
-## 当前能力（v1.25.1）
+## 当前能力（v1.25.2）
+
+- v1.25.2（云端一键部署）：新增 `INIT_ADMIN_USER` / `INIT_ADMIN_PASSWORD`（首次启动自动创建账号，配合关闭演示账号使用）、`AUTO_IMPORT_WORDS=1`（首次启动自动导入内置 3000 词，clone 后无需手动点导入）。完整保姆级部署步骤见 `docs/deploy-aliyun.md`。
 
 - v1.25.1（修复）：**上传目录（`UPLOAD_DIR`）跟随数据库所在目录**——测试用临时数据库时上传文件自动隔离，`/api/reset` 不再误清真实上传资料（真实部署默认仍为项目目录 `uploads/`）。
 
@@ -81,6 +83,7 @@
 
 ## Linux 云端部署（阿里云 ECS 等）
 
+> **保姆级一步一步教程见 [`docs/deploy-aliyun.md`](docs/deploy-aliyun.md)**（从买服务器到 HTTPS 全覆盖，照抄即可）。
 > 应用无任何第三方 npm 依赖（纯 Node 内置模块 + `node:sqlite`），无需 `npm install`。
 
 **1. 安装 Node.js（≥ 22.13.0，22.5~22.12 需 `--experimental-sqlite` 标志，不再支持）**
@@ -114,14 +117,18 @@ pm2 save && pm2 startup
 | `BACKUP_DIR` | 项目目录/backups | 每日自动备份目录（保留 7 份） |
 | `ALLOW_REGISTER` | 1 | 公网部署**务必设 `0` 关闭开放注册** |
 | `DISABLE_DEMO_ACCOUNT` | 未设 | 公网部署**务必设 `1`**：不再自动创建 admin/admin123 演示账号（否则任何人可直接登录） |
+| `INIT_ADMIN_USER` / `INIT_ADMIN_PASSWORD` | 未设 | **首次启动自动创建你的登录账号**（配合 DISABLE_DEMO_ACCOUNT=1 使用，否则公网无账号可登录） |
+| `AUTO_IMPORT_WORDS` | 未设 | 设为 `1`：首次启动自动导入内置 3000 词（clone 后无需手动点导入） |
 | `COOKIE_SECURE` | 未设 | HTTPS 反代场景设 `1`（Cookie 加 Secure 标志） |
 | `OCR_ENGINE` | auto | `auto`：有 MinerU 用真实识别，`MINERU_DISABLE=1` 或显式 `mock` 用模拟，否则 **`off`（识别明确报错，绝不把模拟文本当真结果入库）** |
 | `MINERU_CLI` | Windows 自动探测 | MinerU CLI 可执行文件路径（Linux 下请装 mineru CLI 并指向它，Windows 用 `.cmd`） |
 | `PDF_BROWSER` | 自动探测 | 试卷导出用的无头浏览器路径（Linux 常见路径已内置：chromium / google-chrome） |
 
 ```bash
-# 公网安全部署示例（pm2 + 环境变量文件）
-ALLOW_REGISTER=0 DISABLE_DEMO_ACCOUNT=1 DB_FILE=/data/mistake-book/mistake-book.db \
+# 公网安全部署示例（pm2 + 环境变量文件；首次启动自动建号并导入 3000 词）
+ALLOW_REGISTER=0 DISABLE_DEMO_ACCOUNT=1 \
+INIT_ADMIN_USER=myuser INIT_ADMIN_PASSWORD=你的密码 \
+AUTO_IMPORT_WORDS=1 DB_FILE=/data/mistake-book/mistake-book.db \
   pm2 start server.js --name mistake-book
 ```
 
