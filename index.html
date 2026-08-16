@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <!-- 个人工作台 v1.22.1 -->
+  <!-- 个人工作台 v1.23.0 -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>个人工作台</title>
@@ -75,7 +75,15 @@
         <div class="nav-group">学习</div>
         <a class="nav-item" data-view="input"><span class="icon">📸</span>识别录入</a>
         <a class="nav-item" data-view="questions"><span class="icon">🗂</span>题库</a>
-        <a class="nav-item" data-view="wordbook"><span class="icon">🎴</span>背单词</a>
+        <div class="nav-sub-wrap" id="nav-wordbook">
+          <a class="nav-item nav-parent" data-view="wordbook" onclick="toggleWordSub(event)"><span class="icon">🎴</span>背单词 <span class="nav-caret">▾</span></a>
+          <div class="nav-sub" id="word-sub">
+            <a class="nav-item nav-sub-item" data-word-tab="learn">📖 开始学习</a>
+            <a class="nav-item nav-sub-item" data-word-tab="data">📊 学习记录</a>
+            <a class="nav-item nav-sub-item" data-word-tab="fav">⭐ 困难单词本</a>
+            <a class="nav-item nav-sub-item" data-word-tab="search">🔍 查单词</a>
+          </div>
+        </div>
 
         <div class="nav-group">资讯与资料</div>
         <a class="nav-item" data-view="hot"><span class="icon">🔥</span>热点资讯</a>
@@ -319,7 +327,7 @@
           </div>
         </section>
 
-        <!-- ========== 背单词（v1.22 简化卡片流 + 困难单词本 + 数据面板） ========== -->
+        <!-- ========== 背单词（v1.23 下拉子菜单：开始学习 / 学习记录 / 困难单词本 / 查单词） ========== -->
         <section id="view-wordbook" style="display:none;">
           <div class="topbar">
             <div>
@@ -331,13 +339,27 @@
             </div>
           </div>
 
-          <!-- 入口面板（词书进度 + 开始 + 困难单词本 + 搜索 + 发音开关） -->
-          <div class="card review-card" id="word-config" style="display:none;"></div>
+          <!-- 页面内功能切换（与侧边栏下拉子菜单同步） -->
+          <div class="word-tabs" id="word-tabs">
+            <button class="on" data-wt="learn">📖 开始学习</button>
+            <button data-wt="data">📊 学习记录</button>
+            <button data-wt="fav">⭐ 困难单词本</button>
+            <button data-wt="search">🔍 查单词</button>
+          </div>
 
-          <!-- 数据记录面板（今日数据 / 每日历史 / 单词状态） -->
-          <div class="card review-card" id="word-data" style="display:none;"></div>
+          <!-- ① 开始学习（词书进度 + 开始按钮 + 发音开关） -->
+          <div class="card review-card word-pane" id="word-config" style="display:none;"></div>
 
-          <!-- 单词卡（看词 → 翻卡 → 三档自评） -->
+          <!-- ② 学习记录（今日数据 / 每日历史 / 单词状态） -->
+          <div class="card review-card word-pane" id="word-data" style="display:none;"></div>
+
+          <!-- ③ 困难单词本（收藏列表 + 单独复习） -->
+          <div class="card review-card word-pane" id="word-fav" style="display:none;"></div>
+
+          <!-- ④ 查单词（全局搜索） -->
+          <div class="card review-card word-pane" id="word-search-pane" style="display:none;"></div>
+
+          <!-- 单词卡（看词 → 翻卡 → 三档自评 / 下一个） -->
           <div class="card review-card" id="word-play" style="display:none;">
             <div class="flex-between mb-16">
               <span class="tag" id="word-pos"></span>
@@ -348,24 +370,28 @@
               <div class="word-word" id="word-word"></div>
               <div class="small muted" id="word-word-ph"></div>
               <button class="btn btn-sm mt-8" onclick="speakWord()">🔊 发音</button>
+              <div class="flex mt-16" style="gap:10px;justify-content:center;flex-wrap:wrap;">
+                <button class="btn btn-lg" onclick="flipWord()" id="word-show-ans">翻卡看释义</button>
+                <button class="btn btn-lg btn-primary" onclick="nextWord()" title="不翻卡直接过（记认识）">下一个 ›</button>
+              </div>
             </div>
             <!-- 释义面（释义 + 例句 + 拓展 + 收藏） -->
             <div class="word-back" id="word-back" style="display:none;">
-              <div class="word-word" id="word-word-big" style="font-size:30px;"></div>
-              <div id="word-mean" style="font-size:17px;"></div>
+              <div class="word-word" id="word-word-big" style="font-size:34px;"></div>
+              <div id="word-mean" style="font-size:19px;margin-top:10px;"></div>
               <div id="word-example" class="mt-8"></div>
               <div id="word-detail"></div>
-              <div class="mt-8">
+              <div class="mt-12">
                 <button class="btn btn-sm" id="word-fav-btn" onclick="wordFavFromCur()">☆ 收藏困难词</button>
               </div>
             </div>
-            <button class="btn btn-lg mt-16" onclick="flipWord()" id="word-show-ans" style="display:none;">翻卡看释义</button>
             <div class="self-rate mt-16" id="word-rate" style="display:none;">
               <button class="rate-btn ok" onclick="wordRate('know')">✅ 认识</button>
               <button class="rate-btn" style="border-color:#F59F00;color:#B97700;" onclick="wordRate('fuzzy')">🟡 模糊</button>
               <button class="rate-btn no" onclick="wordRate('miss')">❌ 不会</button>
+              <button class="btn btn-lg btn-primary" onclick="nextWord()" title="记认识并进入下一个">下一个 ›</button>
             </div>
-            <div class="small muted mt-16">快捷键：空格翻卡 · 1/2/3 自评 · 模糊/不会自动回炉</div>
+            <div class="small muted mt-16">空格翻卡 · 1/2/3 自评 · N 或 → 下一个（记认识）· 模糊/不会自动回炉</div>
             <div class="divider"></div>
             <button class="btn" onclick="wordExit()">退出背单词</button>
           </div>
@@ -1074,7 +1100,15 @@
         <div class="nav-group">学习</div>
         <a class="nav-item" data-view="input"><span class="icon">📸</span>识别录入</a>
         <a class="nav-item" data-view="questions"><span class="icon">🗂</span>题库</a>
-        <a class="nav-item" data-view="wordbook"><span class="icon">🎴</span>背单词</a>
+        <div class="nav-sub-wrap" id="nav-wordbook-m">
+          <a class="nav-item nav-parent" data-view="wordbook" onclick="toggleWordSub(event)"><span class="icon">🎴</span>背单词 <span class="nav-caret">▾</span></a>
+          <div class="nav-sub" id="word-sub-m">
+            <a class="nav-item nav-sub-item" data-word-tab="learn">📖 开始学习</a>
+            <a class="nav-item nav-sub-item" data-word-tab="data">📊 学习记录</a>
+            <a class="nav-item nav-sub-item" data-word-tab="fav">⭐ 困难单词本</a>
+            <a class="nav-item nav-sub-item" data-word-tab="search">🔍 查单词</a>
+          </div>
+        </div>
         <div class="nav-group">资讯与资料</div>
         <a class="nav-item" data-view="hot"><span class="icon">🔥</span>热点资讯</a>
         <a class="nav-item" data-view="bookmarks"><span class="icon">🔖</span>收藏夹</a>

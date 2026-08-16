@@ -1,15 +1,24 @@
 /* ============================================================
-   个人工作台 v1.22.0 · 13-wordbook.js（v1.22 重构：简化卡片流 + 困难单词本 + 数据面板 + 搜索）
-   核心流程：单词+音标 → 翻卡（释义/例句/拓展）→ 认识/模糊/不会三档自评（SM-2 调度）
-   无拼写测试 / 无听音答题 / 无例句猜义，全程只做卡片判断
-   收藏：困难单词本（一键加入/移除，收藏词仍参与正常复习，可单独复习）
-   数据：今日新词/复习量、近 14 天每日记录、单词状态（已掌握/待复习/未学/困难）
-   附加：单词全局搜索、发音开关、进度云端保存（SQLite）
+   个人工作台 v1.23.0 · 13-wordbook.js（v1.23 下拉子菜单分功能页 + 学习卡放大 + 下一个单词）
+   侧边栏「背单词」展开下拉子菜单：开始学习 / 学习记录 / 困难单词本 / 查单词
+   学习：单一卡片流（看词 → 翻卡 → 认识/模糊/不会 或「下一个」连续过词）
+   困难单词本：一键收藏/移除，收藏词仍参与正常复习，可单独复习
+   数据：今日新词/复习量、近 14 天每日记录、单词状态筛选
+   附加：全局搜索、发音开关、进度云端保存（SQLite）
    依赖：本文件之前的 js/0X-*.js；wordPlan 状态在 02-state.js 声明。
    ============================================================ */
 
 const WORD_BOOK_ID = "ch-w2";          // 内置词书章节 id（英语 → 单词 下）
 const WORD_BOOK_NAME = "六级核心词 3000";
+
+/* 功能页签（与侧边栏下拉子菜单一一对应） */
+const WORD_TABS = [
+  { key: "learn", name: "📖 开始学习" },
+  { key: "data", name: "📊 学习记录" },
+  { key: "fav", name: "⭐ 困难单词本" },
+  { key: "search", name: "🔍 查单词" }
+];
+let wordTab = "learn"; // 当前功能页（持久化在 wordPlan.tab）
 
 /* ---------- 词书数据 ---------- */
 function wordQuestions() {
@@ -185,7 +194,9 @@ function toggleWordFav(q) {
   toast(q.marks.fav ? "⭐ 已加入困难单词本（仍参与正常复习）" : "已移出困难单词本", q.marks.fav ? "success" : "");
   const fb = $("#word-fav-btn");
   if (fb && window.__curWord && window.__curWord.id === q.id) fb.innerHTML = favBtnHtml(q);
-  renderWordData();
+  if (wordTab === "fav") renderWordFav();
+  else if (wordTab === "data") renderWordData();
+  else if (wordTab === "learn") renderWordPanel();
   return q.marks.fav;
 }
 /* 卡片释义面的收藏按钮（当前词） */
@@ -210,30 +221,62 @@ function reviewFavs() {
   renderWordCard();
 }
 
-/* ---------- 单词卡（单一卡片流：看词 → 翻卡 → 三档自评） ---------- */
+/* ---------- 单词卡（单一卡片流：看词 → 翻卡 → 三档自评 / 下一个） ---------- */
 let wordQueue = [];   // [{ q, misses }]
 let wordIdx = 0;
 let wordStats = { know: 0, fuzzy: 0, miss: 0 };
 let wordSession = false;
 
-/* ---------- 独立页面入口（侧边栏「🎴 背单词」） ---------- */
-function openWordbook() {
-  go("wordbook"); // go() 内会 renderWordPanel + showWordConfig
+/* ---------- 独立页面入口（侧边栏「🎴 背单词」下拉子菜单） ---------- */
+function openWordbook(tab) {
+  if (tab && WORD_TABS.some(t => t.key === tab)) wordTab = tab;
+  else wordTab = (wordPlan && wordPlan.tab) || "learn";
+  wordPlan = { ...(wordPlan || { newPerDay: 50 }), tab: wordTab };
+  apiCall(API.saveSettings({ wordPlan }));
+  go("wordbook");
 }
-function showWordConfig() {
-  const cfg = $("#word-config"), play = $("#word-play"), done = $("#word-done"), data = $("#word-data");
-  if (cfg) cfg.style.display = "";
-  if (data) data.style.display = "";
+
+/* 侧边栏下拉：展开/收起「背单词」子菜单 */
+function toggleWordSub(e) {
+  if (e) e.preventDefault();
+  const wrap = e && e.currentTarget ? e.currentTarget.closest(".nav-sub-wrap") : null;
+  if (wrap) wrap.classList.toggle("open");
+}
+
+/* 页面内切换功能页（与侧边栏子菜单同步） */
+function showWordTab(tab) {
+  if (!WORD_TABS.some(t => t.key === tab)) tab = "learn";
+  wordTab = tab;
+  wordPlan = { ...(wordPlan || { newPerDay: 50 }), tab };
+  apiCall(API.saveSettings({ wordPlan }));
+  ["word-config", "word-data", "word-fav", "word-search-pane"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = "none";
+  });
+  const play = $("#word-play"), done = $("#word-done");
   if (play) play.style.display = "none";
   if (done) done.style.display = "none";
-  renderWordData();
+  if (tab === "learn") { renderWordPanel(); const el = $("#word-config"); if (el) el.style.display = ""; }
+  else if (tab === "data") { renderWordData(); const el = $("#word-data"); if (el) el.style.display = ""; }
+  else if (tab === "fav") { renderWordFav(); const el = $("#word-fav"); if (el) el.style.display = ""; }
+  else { if (!$("#word-search-input")) renderWordSearchPane(); const el = $("#word-search-pane"); if (el) el.style.display = ""; }
+  $$("#word-tabs button").forEach(b => b.classList.toggle("on", b.dataset.wt === tab));
+  updateWordSub(tab);
 }
+
+/* 侧边栏子菜单高亮同步 */
+function updateWordSub(tab) {
+  $$("#word-sub .nav-sub-item, #word-sub-m .nav-sub-item").forEach(a => a.classList.toggle("active", a.dataset.wordTab === tab));
+}
+
 function showWordPlay() {
-  const cfg = $("#word-config"), play = $("#word-play"), done = $("#word-done"), data = $("#word-data");
-  if (cfg) cfg.style.display = "none";
-  if (data) data.style.display = "none";
-  if (done) done.style.display = "none";
+  ["word-config", "word-data", "word-fav", "word-search-pane"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = "none";
+  });
+  const play = $("#word-play"), done = $("#word-done");
   if (play) play.style.display = "";
+  if (done) done.style.display = "none";
 }
 
 /* 队列 = 到期复习词（SM-2，仅已有记录的词）→ 新词补足每日上限 */
@@ -260,8 +303,8 @@ function renderWordCard() {
   const q = item.q;
   const m = q.marks || {};
   window.__curWord = q;
-  // 统一隐藏各区
-  ["word-front", "word-back", "word-show-ans", "word-rate"].forEach(id => {
+  // 统一隐藏各区（翻卡按钮在单词面内部，随 word-front 一起显隐）
+  ["word-front", "word-back", "word-rate"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = "none";
   });
@@ -277,7 +320,6 @@ function renderWordCard() {
   $("#word-detail").innerHTML = "";
   $("#word-detail").style.display = "none";
   $("#word-rate").style.display = "none";
-  $("#word-show-ans").style.display = "";
   // 新词首刷自动读一遍发音（可关）
   if (logsOf(q.id).length === 0) speakWord(true);
 }
@@ -285,7 +327,7 @@ function renderWordCard() {
 function flipWord() {
   const q = window.__curWord;
   const m = q.marks || {};
-  ["word-front", "word-show-ans"].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
+  ["word-front"].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
   $("#word-back").style.display = "";
   $("#word-word-big").textContent = q.titleTex;
   $("#word-mean").innerHTML = `<div class="katex-render" data-tex="${esc(q.solutionTex || "")}"></div>`;
@@ -322,6 +364,11 @@ function wordRate(grade) {
   renderWordCard();
 }
 
+/* 下一个单词（= 记认识并前进，正面/背面均可一键连续过词） */
+function nextWord() {
+  wordRate("know");
+}
+
 /* 自评落库（ok/half/fail → SM-2） */
 function commitWordGrade(q, result) {
   const log = { id: ++reviewSeq, qid: q.id, at: Date.now(), result };
@@ -334,7 +381,10 @@ function finishWordSession() {
   wordSession = false;
   $("#word-play").style.display = "none";
   $("#word-done").style.display = "";
-  $("#word-data").style.display = "none";
+  ["word-config", "word-data", "word-fav", "word-search-pane"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = "none";
+  });
   const total = wordStats.know + wordStats.fuzzy + wordStats.miss;
   $("#word-done-stats").innerHTML = `
     <div class="grid grid-3">
@@ -348,8 +398,7 @@ function finishWordSession() {
 
 function wordExit() {
   wordSession = false;
-  renderWordPanel();
-  showWordConfig();
+  showWordTab(wordTab);
 }
 
 /* ---------- 发音（开关控制） ---------- */
@@ -361,13 +410,13 @@ function toggleWordSound() {
   toast(on ? "🔊 单词发音已开启" : "🔇 单词发音已关闭", on ? "success" : "");
   const sw = $("#wp-sound-switch");
   if (sw) sw.textContent = on ? "🔊 已开启" : "🔇 已关闭";
-  renderWordPanel();
+  if (wordTab === "learn") renderWordPanel();
 }
 /* silent=true 时静默失败（新词自动朗读），false 时提示用户 */
 function speakWord(silent) {
   const q = window.__curWord;
   if (!q) return;
-  if (!wordSoundOn()) { if (!silent) toast("🔇 发音已关闭：词书页「发音」按钮或 设置 → 📚 背单词 可开启"); return; }
+  if (!wordSoundOn()) { if (!silent) toast("🔇 发音已关闭：开始学习页「发音」按钮或 设置 → 📚 背单词 可开启"); return; }
   if (!("speechSynthesis" in window)) { toast("当前浏览器不支持语音", "error"); return; }
   const u = new SpeechSynthesisUtterance(q.titleTex);
   u.lang = "en-US";
@@ -397,7 +446,7 @@ function learnWordNow(qid) {
   renderWordCard();
 }
 
-/* ---------- 数据记录面板（今日 / 历史 / 状态） ---------- */
+/* ---------- 学习记录面板（今日 / 历史 / 状态） ---------- */
 function wordToday() {
   const list = wordQuestions();
   const today = fmtDate(Date.now());
@@ -524,13 +573,45 @@ function renderWordData() {
     <div class="mt-8">
       ${rows.length ? rows.slice(0, MAX_SHOW).map(statusRowHtml).join("") +
         (rows.length > MAX_SHOW ? `<div class="small muted mt-8">…共 ${rows.length} 个，仅显示前 ${MAX_SHOW} 个</div>` : "")
-        : `<div class="small muted">词书还没有单词：点上方「⬇ 一键导入词书」或「📋 批量粘贴导入」。</div>`}
+        : `<div class="small muted">词书还没有单词：去「📖 开始学习」页一键导入或批量粘贴。</div>`}
     </div>`;
 }
 
-/* ---------- 单词全局搜索 ---------- */
+/* ---------- 困难单词本面板 ---------- */
+function renderWordFav() {
+  const el = $("#word-fav");
+  if (!el) return;
+  const list = wordFavList();
+  el.innerHTML = `
+    <div class="card-head"><div class="card-title">⭐ 困难单词本</div><span class="tag">${list.length} 词</span></div>
+    <div class="flex-between mt-8" style="flex-wrap:wrap;gap:8px;">
+      <div class="small muted">收藏的困难单词仍参与正常复习计划，可在这里单独浏览 / 复习全部收藏词。</div>
+      <button class="btn btn-primary" onclick="reviewFavs()">▶ 复习困难单词（${list.length}）</button>
+    </div>
+    <div class="divider mt-8"></div>
+    <div class="mt-8">
+      ${list.length
+        ? list.map(q => statusRowHtml({ q, lv: computeMastery(q.id).lv, fav: true, lastAt: scheduleOf(q.id).lastAt })).join("")
+        : `<div class="small muted">还没有收藏的困难单词。学习时翻卡后点「☆ 收藏困难词」即可加入，也可以从「学习记录 → 单词状态」里点 ☆ 收藏。</div>`}
+    </div>`;
+}
+
+/* ---------- 查单词面板（全局搜索） ---------- */
+function renderWordSearchPane() {
+  const el = $("#word-search-pane");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="card-head"><div class="card-title">🔍 查单词</div><span class="tag">词书全局搜索</span></div>
+    <div class="mt-8">
+      <input class="input" id="word-search-input" placeholder="输入 单词 / 中文释义 / 英英释义…" style="width:100%;max-width:520px;" autofocus oninput="wordSearch(this.value)" />
+    </div>
+    <div id="word-search-res"></div>
+    <div class="small muted mt-8">支持按 单词 / 中文释义 / 英英释义 搜索；点词看详情，可发音、收藏、单独学习。</div>`;
+}
+
 function wordSearch(kw) {
-  const box = $("#word-search-res");
+  let box = $("#word-search-res");
+  if (!box) { renderWordSearchPane(); box = $("#word-search-res"); }
   if (!box) return;
   kw = (kw || "").trim().toLowerCase();
   if (!kw) { box.innerHTML = ""; return; }
@@ -584,7 +665,7 @@ function openWordDetail(qid) {
      <button class="btn btn-primary" onclick="closeModal();learnWordNow(${q.id})">去学习</button>`);
 }
 
-/* ---------- 面板渲染（词书状态 + 开始 + 搜索 + 发音开关） ---------- */
+/* ---------- 「开始学习」面板（词书状态 + 开始 + 发音开关） ---------- */
 function renderWordPanel() {
   const p = wordProgress();
   const cfg = $("#word-config");
@@ -597,13 +678,13 @@ function renderWordPanel() {
     const t = wordToday();
     const soundOn = wordSoundOn();
     cfg.innerHTML = `
-      <div class="card-head"><div class="card-title">🎴 背单词</div><span class="tag">六级核心词 3000</span></div>
-      <div class="flex-between">
-        <div class="small muted">已学 <b>${p.learned}</b> / ${p.total} 词 · 今日到期 <b>${p.due}</b> 词 · ✅${p.know} 🟡${p.fuzzy} ❌${p.miss} · 今日新词 <b>${todayNew}</b>/${limit}</div>
-        <div class="flex" style="gap:8px;">
-          <button class="btn btn-primary btn-lg" onclick="startWordReview()">开始背单词</button>
-          <button class="btn btn-lg" onclick="go('dashboard')">返回仪表盘</button>
+      <div class="card-head"><div class="card-title">📖 开始学习</div><span class="tag">六级核心词 3000</span></div>
+      <div class="word-hero">
+        <div class="word-hero-main">
+          <div class="word-hero-num">已学 <b>${p.learned}</b> / ${p.total} 词</div>
+          <div class="small muted mt-4">今日到期 <b>${p.due}</b> 词 · 今日新词 <b>${todayNew}</b>/${limit} · ✅${p.know} 🟡${p.fuzzy} ❌${p.miss}</div>
         </div>
+        <button class="btn btn-primary btn-lg" onclick="startWordReview()">▶ 开始背单词</button>
       </div>
       ${p.total === 0 ? `
         <div class="alert alert-warn mt-8">
@@ -619,12 +700,8 @@ function renderWordPanel() {
           <button class="btn" onclick="reviewFavs()" title="单独复习全部困难单词（不分到期与否）">⭐ 复习困难单词（${t.favCount}）</button>
           <button class="btn" onclick="toggleWordSound()" title="发音开关">${soundOn ? "🔊 发音：开" : "🔇 发音：关"}</button>
         </div>
-        <div class="flex" style="gap:6px;">
-          <input class="input" id="word-search-input" placeholder="🔍 搜索单词 / 释义 / 英释…" style="width:240px;" oninput="wordSearch(this.value)" />
-        </div>
       </div>
-      <div id="word-search-res"></div>
-      <div class="small muted mt-8">卡片：看词 → 空格翻卡（释义/例句/拓展）→ <b>认识 / 模糊 / 不会</b> 三档自评；模糊与不会自动回炉，结果计入间隔重复。翻卡后可点「☆ 收藏困难词」加入困难单词本。</div>`;
+      <div class="small muted mt-8">卡片：看词 → 空格翻卡（释义/例句/拓展）→ 认识/模糊/不会 三档自评，或直接点「下一个 ›」连续过词（记认识）；模糊/不会自动回炉，结果计入间隔重复。收藏的困难词仍参与正常复习。</div>`;
   }
   renderWordData();
 }
@@ -641,8 +718,11 @@ function saveWordPlan() {
 
 /* window 暴露 */
 window.openWordbook = openWordbook;
+window.toggleWordSub = toggleWordSub;
+window.showWordTab = showWordTab;
 window.startWordReview = startWordReview;
 window.reviewFavs = reviewFavs;
+window.nextWord = nextWord;
 window.flipWord = flipWord;
 window.wordRate = wordRate;
 window.speakWord = speakWord;
@@ -654,6 +734,8 @@ window.doReimportNow = doReimportNow;
 window.openPasteWords = openPasteWords;
 window.doPasteWords = doPasteWords;
 window.renderWordPanel = renderWordPanel;
+window.renderWordFav = renderWordFav;
+window.renderWordSearchPane = renderWordSearchPane;
 window.saveWordPlan = saveWordPlan;
 window.toggleWordFav = toggleWordFav;
 window.wordFavFromCur = wordFavFromCur;

@@ -1,5 +1,5 @@
 /* ============================================================
-   个人工作台 v1.22.0 · 12-boot.js（由 app.js 拆分）
+   个人工作台 v1.23.0 · 12-boot.js（由 app.js 拆分）
    初始化入口、window 暴露、跨标签同步、?auto=1
    依赖：本文件之前的 js/0X-*.js；经典 script 顺序加载，共享全局词法环境。
    ============================================================ */
@@ -57,7 +57,7 @@ async function doResetDemo() {
     const t = e.target;
     const tag = (t && t.tagName) || "";
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (t && t.isContentEditable)) return;
-    // 🎴 背单词快捷键（优先）：空格翻卡 · 1/2/3 三档自评 · 未学习中 "/" 聚焦搜索
+    // 🎴 背单词快捷键（优先）：空格翻卡 · 1/2/3 三档自评 · N/→ 下一个（记认识）· 未学习中 "/" 进入查单词
     if (wordSession) {
       const wplay = $("#word-play");
       if (!wplay || wplay.style.display === "none") return;
@@ -71,11 +71,13 @@ async function doResetDemo() {
         if (rate && rate.style.display !== "none") wordRate({ "1": "know", "2": "fuzzy", "3": "miss" }[e.key]);
         return;
       }
+      if (e.key === "n" || e.key === "N" || e.key === "ArrowRight") { nextWord(); return; }
       return;
     }
     if (currentView === "wordbook" && e.key === "/") {
-      const si = $("#word-search-input");
-      if (si) { e.preventDefault(); si.focus(); }
+      e.preventDefault();
+      showWordTab("search");
+      setTimeout(() => { const si = $("#word-search-input"); if (si) si.focus(); }, 60);
       return;
     }
     const play = $("#review-play");
@@ -96,6 +98,7 @@ async function doResetDemo() {
     if (e.key === "ArrowRight" && !ansShown) { e.preventDefault(); if (reviewIdx < reviewQueue.length - 1) jumpTo(reviewIdx + 1); return; }
   });
   $$(".nav-item, .mobile-tabbar a").forEach(a => a.addEventListener("click", () => {
+    if (a.dataset.wordTab) { openWordbook(a.dataset.wordTab); hideMobileMenu(); return; }
     if (a.dataset.view) { go(a.dataset.view); hideMobileMenu(); }
   }));
   document.addEventListener("click", e => {
