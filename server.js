@@ -1,7 +1,9 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.25.0）
+   个人工作台 · 本地服务（v1.25.1）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.25.1：上传目录（UPLOAD_DIR）跟随数据库所在目录——测试用临时库时自动隔离，
+   重置不再误清真实上传文件。
    v1.25.0：全面排查修复——部署安全（HOST/COOKIE_SECURE/注册开关/演示账号开关/
    uploads 鉴权/路径穿越/源码禁下/静态黑名单）/ 写队列防毒化 / reviewSeq 用 max(id) /
    OCR_ENGINE 引擎开关（Linux 不静默造假）/ PDF Linux 浏览器 / Cookie Max-Age /
@@ -45,6 +47,8 @@ const PORT = process.env.PORT || 8788;
 const HOST = process.env.HOST || "127.0.0.1";            // 公网直连设 0.0.0.0；Nginx 反代保持 127.0.0.1
 const APP_VERSION = fs.readFileSync(path.join(ROOT, "VERSION"), "utf8").trim(); // 版本号单一来源
 const DB_FILE = process.env.DB_FILE || path.join(ROOT, "mistake-book.db");
+// 上传目录跟随数据库所在目录：测试用临时 DB 时自动隔离，不污染真实上传（真实默认仍为 ROOT/uploads）
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(path.dirname(DB_FILE), "uploads");
 const BACKUP_DIR = process.env.BACKUP_DIR || path.join(ROOT, "backups");
 const COOKIE_SECURE = process.env.COOKIE_SECURE === "1"; // HTTPS 反代场景置 1 追加 Secure
 const ALLOW_REGISTER = process.env.ALLOW_REGISTER !== "0"; // 公网部署建议置 0 关闭开放注册
@@ -559,7 +563,7 @@ function sendJson(res, code, obj) {
 function unlinkUpload(urlOrPath) {
   const name = String(urlOrPath || "").split("/").pop();
   if (!/^bm-[0-9a-f]{16}\.[a-z0-9]+$/i.test(name)) return;
-  try { fs.unlinkSync(path.join(ROOT, "uploads", name)); } catch (e) { /* 不存在或失败可忽略 */ }
+  try { fs.unlinkSync(path.join(UPLOAD_DIR, name)); } catch (e) { /* 不存在或失败可忽略 */ }
 }
 
 function readBody(req) {
@@ -1161,7 +1165,7 @@ const server = http.createServer(async (req, res) => {
           // 连带删除上传的文件（仅限本应用生成的上传文件）
           if (row && row.url && row.url.startsWith("/uploads/")) {
             const name = path.basename(row.url);
-            if (/^bm-[0-9a-f]{16}\./.test(name)) fs.unlink(path.join(ROOT, "uploads", name), () => {});
+            if (/^bm-[0-9a-f]{16}\./.test(name)) fs.unlink(path.join(UPLOAD_DIR, name), () => {});
           }
         });
         await writeQueue;
@@ -1233,7 +1237,7 @@ const server = http.createServer(async (req, res) => {
         });
         // 重置 = 全新开始，清空上传文件
         try {
-          const upDir = path.join(ROOT, "uploads");
+          const upDir = UPLOAD_DIR;
           if (fs.existsSync(upDir)) for (const f of fs.readdirSync(upDir)) fs.unlinkSync(path.join(upDir, f));
         } catch (e) { console.warn("清理上传目录失败（可忽略）：", e.message); }
         sendJson(res, 200, { ok: true });
@@ -1301,7 +1305,7 @@ const server = http.createServer(async (req, res) => {
         if (![".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].includes(ext)) {
           return sendJson(res, 400, { code: 40002, message: "不支持的图片类型：" + (ext || "未知") });
         }
-        const dir = path.join(ROOT, "uploads");
+        const dir = UPLOAD_DIR;
         fs.mkdirSync(dir, { recursive: true });
         const safe = "bm-" + crypto.randomBytes(8).toString("hex") + ext;
         fs.writeFileSync(path.join(dir, safe), buf);
@@ -1391,7 +1395,7 @@ const server = http.createServer(async (req, res) => {
         if (!allow.includes(ext)) {
           return sendJson(res, 400, { code: 40002, message: "不支持的文件类型：" + (ext || "未知") + "（仅允许 PDF/Office/图片/文本/Markdown/ZIP）" });
         }
-        const dir = path.join(ROOT, "uploads");
+        const dir = UPLOAD_DIR;
         fs.mkdirSync(dir, { recursive: true });
         const safe = "bm-" + crypto.randomBytes(8).toString("hex") + ext;
         fs.writeFileSync(path.join(dir, safe), buf);
@@ -1414,16 +1418,23 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 403, { code: 40300, message: "禁止访问" });
     return;
   }
-  // 路径穿越防护：拒绝任何包含 .. 段（含 %2e%2e 解码后）的路径，并要求 join 后仍在 ROOT 内
+  // 路径穿越防护：拒绝任何包含 .. 段（含 %2e%2e 解码后）的路径，并要求 join 后仍在允许目录内
   const segs = rel.split(/[\\/]/);
   if (segs.some(s => s === "..")) { sendJson(res, 403, { code: 40300, message: "禁止访问" }); return; }
-  const file = path.normalize(path.join(ROOT, rel));
-  if (!file.startsWith(ROOT + path.sep) && file !== path.join(ROOT, "index.html")) {
-    sendJson(res, 403, { code: 40300, message: "禁止访问" });
-    return;
+  const isUpload = lower.startsWith("uploads/");
+  let file;
+  if (isUpload) {
+    file = path.normalize(path.join(UPLOAD_DIR, rel.slice("uploads/".length)));
+    if (!file.startsWith(UPLOAD_DIR + path.sep)) { sendJson(res, 403, { code: 40300, message: "禁止访问" }); return; }
+  } else {
+    file = path.normalize(path.join(ROOT, rel));
+    if (!file.startsWith(ROOT + path.sep) && file !== path.join(ROOT, "index.html")) {
+      sendJson(res, 403, { code: 40300, message: "禁止访问" });
+      return;
+    }
   }
   // uploads/ 下为个人学习资料，需要登录后才能访问（浏览器同源加载 <img> 会自动携带 Cookie）
-  if (lower.startsWith("uploads/") && !getUserByCookie(req)) {
+  if (isUpload && !getUserByCookie(req)) {
     sendJson(res, 401, { code: 40100, message: "未登录" });
     return;
   }
@@ -1458,7 +1469,7 @@ process.on("SIGINT", gracefulShutdown);
 
 server.listen(PORT, HOST, () => {
   const dbSize = fs.existsSync(DB_FILE) ? Math.max(1, Math.round(fs.statSync(DB_FILE).size / 1024)) : 0;
-  const upDir = path.join(ROOT, "uploads");
+  const upDir = UPLOAD_DIR;
   const upCount = fs.existsSync(upDir) ? fs.readdirSync(upDir).filter(f => !fs.statSync(path.join(upDir, f)).isDirectory()).length : 0;
   const qCount = db.prepare("SELECT COUNT(*) AS n FROM questions").get().n;
   const uCount = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
