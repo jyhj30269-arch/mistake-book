@@ -1,7 +1,8 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.22.0）
+   个人工作台 · 本地服务（v1.22.1）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.22.1：启动横幅版本号改为读取 VERSION 文件（单一来源，修复显示旧版本号）。
    v1.22.0：背单词重构——单一卡片流（无拼写/听音/例句猜义）/ 困难单词本收藏 /
    数据记录面板（今日新词与复习量/每日历史/单词状态）/ 单词全局搜索 / 发音开关。
    v1.21.0：背单词独立为侧边栏页面（词书进度/模式选择/单词卡/小结）/
@@ -33,6 +34,7 @@ const { TREE, QUESTIONS, REVIEW_LOGS } = require("./seed-data.js");
 
 const ROOT = __dirname;
 const PORT = process.env.PORT || 8788;
+const APP_VERSION = fs.readFileSync(path.join(ROOT, "VERSION"), "utf8").trim(); // 版本号单一来源
 const DB_FILE = process.env.DB_FILE || path.join(ROOT, "mistake-book.db");
 const MINERU_CLI = path.join(process.env.APPDATA || "", "npm", "mineru-open-api.cmd");
 const MINERU_AVAILABLE = fs.existsSync(MINERU_CLI) && process.env.MINERU_DISABLE !== "1";
@@ -1357,7 +1359,7 @@ server.listen(PORT, "127.0.0.1", () => {
   const uCount = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
   console.log("==============================================");
   console.log(`个人工作台本地服务已启动：http://127.0.0.1:${PORT}`);
-  console.log(`版本：v1.21.0 · Node ${process.versions.node}`);
+  console.log(`版本：v${APP_VERSION} · Node ${process.versions.node}`);
   console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
   console.log(`备份：backups/ 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
   console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);
