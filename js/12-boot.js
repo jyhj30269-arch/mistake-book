@@ -37,7 +37,7 @@ async function doResetDemo() {
     $("#view-app").style.display = "none";
     $("#view-login").style.display = "grid";
   }
-  // 跨标签页同步：其他标签页写库后，本页静默重载数据（录入中不打断）
+  // 跨标签页同步：其他标签页写库后，本页静默重载数据（录入中不打断；背单词/复习会话中只静默重载不重渲染）
   if (typeof BroadcastChannel !== "undefined") {
     window.__mbTabId = Math.random().toString(36).slice(2);
     const bc = new BroadcastChannel("mb-data");
@@ -45,8 +45,13 @@ async function doResetDemo() {
     bc.onmessage = async (ev) => {
       if (ev.data === window.__mbTabId || document.hidden) return;
       if (currentView === "input") return;
+      const busy = (typeof wordSession !== "undefined" && wordSession) ||
+        (typeof reviewStartedAt !== "undefined" && reviewStartedAt > 0 && $("#review-play") && $("#review-play").style.display !== "none");
       const synced = await loadLocal();
-      if (synced && currentView) { go(currentView); toast("已同步其他标签页的更改", "success"); }
+      if (!synced) return;
+      // 会话进行中：只刷新数据（对象引用会变，但不重渲染打断会话）
+      if (busy) { if (currentView === "wordbook") renderWordData(); return; }
+      if (currentView) { go(currentView); toast("已同步其他标签页的更改", "success"); }
     };
   }
   setInterval(studyTick, 1000);

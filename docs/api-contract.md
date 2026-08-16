@@ -1,6 +1,6 @@
 # 考研错题本 · 前端 API 接口契约
 
-> 版本：v1.24.0 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
+> 版本：v1.25.0 ｜ 状态：本地 SQLite 服务（server.js）已实现同一契约
 >
 > 本文件与 `../api.js` 一一对应。后端接入时按此契约实现同名方法即可，前端业务代码无需改动。
 
@@ -13,9 +13,20 @@
 ## 二、通用约定
 
 - 所有方法返回 Promise；远端实现用 `fetch`，错误统一返回 `{ code, message, detail }`。
-- 错误码分段：`400xx` 参数错误、`401xx` 认证失败、`404xx` 不存在、`409xx` 冲突、`500xx` 服务端、`502xx` 第三方（MinerU）、`503xx` 限流/额度。
+- 错误码分段：`400xx` 参数错误、`401xx` 认证失败、`403xx` 权限/功能关闭（如注册关闭 `40301`）、`404xx` 不存在、`409xx` 冲突、`500xx` 服务端、`502xx` 第三方（v1.25 起仅 AI HOT 代理用 `50201`；**MinerU 失败走 `40000/40001` 消息**，不再是 502xx）。
 - 涉及 MinerU Token 的逻辑只允许在后端，前端永远不接触密钥。
 - 单用户系统；v1.13.3 起本地服务**强制 Cookie 会话鉴权**：除 `auth/login`、`auth/register`、`auth/me`、`auth/logout` 与 `paper/html`（无头浏览器打印，靠随机 token 保护）外，所有 `/api/*` 接口必须携带有效 `mb_session` Cookie，否则返回 `40100`。云端后端可自行选择 Authorization 头方案。
+
+## 二·补、云端部署差异（v1.25.0）
+
+把 `server.js` 部署到公网（阿里云 ECS / Nginx 反代）时注意以下与本地 Windows 的差异：
+
+- **监听地址**：默认绑定 `127.0.0.1`（反代场景安全）；公网直连需 `HOST=0.0.0.0` 并配合安全组。
+- **OCR**：MinerU CLI 调用链默认探测 Windows 的 `mineru-open-api.cmd`；Linux 上需安装 mineru CLI 并设 `MINERU_CLI`。未配置时 `OCR_ENGINE=off`，识别接口**明确报错**（绝不返回模拟文本）；`MINERU_DISABLE=1` 或 `OCR_ENGINE=mock` 才走模拟。
+- **PDF 导出**：依赖本机无头浏览器（Windows 内置 Edge 路径 + Linux chromium/google-chrome 路径自动探测，可用 `PDF_BROWSER` 覆盖）；无浏览器时接口报错。
+- **安全**：公网务必 `ALLOW_REGISTER=0`（关闭开放注册）、`DISABLE_DEMO_ACCOUNT=1`（不创建 admin/admin123）、HTTPS 反代时 `COOKIE_SECURE=1`；`/uploads/` 静态文件需登录后才可访问。
+- **热点资讯**：服务端需出网访问 `https://aihot.virxact.com`；出站受限时该模块不可用。
+- 其余平台无关能力（鉴权覆盖、静态黑名单、备份保留、恢复校验）在云端行为一致。
 
 ## 三、方法清单
 
@@ -126,8 +137,9 @@
 
 ## 五、后端接入检查单
 
-- [ ] `ocrRecognize` / `ocrStatus` 对接 MinerU（先 curl 实测连通性；Supabase 国外域名拉取超时则用方案 B：函数下载 → 申请 MinerU 上传链接 → PUT → 轮询）
+- [ ] `ocrRecognize` / `ocrStatus` 对接 MinerU（先 curl 实测连通性；Linux 部署需设置 `MINERU_CLI`，未配置时返回明确错误而非模拟文本）
 - [ ] `checkDuplicate` 用后端数据实现 7 天窗口 + bigram Jaccard
 - [ ] `saveQuestion` / `deleteQuestion` / `saveReviewLog` 落库，掌握度实时计算（六级状态流转严格按设计文档 §三）
 - [ ] 错误格式统一 `{ code, message, detail }`
+- [ ] 公网部署：`ALLOW_REGISTER=0`、`DISABLE_DEMO_ACCOUNT=1`、HTTPS 反代 `COOKIE_SECURE=1`、`/uploads/` 鉴权
 - [ ] 前端切换 `mode = "remote"` 后全流程回归（录入 → 题库 → 复习 → 统计 → 导入导出）

@@ -6,7 +6,12 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const LIMIT = Number(process.argv[2] || 3000);
+const LIMIT_ARG = process.argv[2] ? Number(process.argv[2]) : 3000;
+if (!Number.isInteger(LIMIT_ARG) || LIMIT_ARG < 1 || LIMIT_ARG > 10000) {
+  console.error("参数错误：词数必须是 1~10000 的整数（如 node scripts/build-wordlist.mjs 3000）");
+  process.exit(1);
+}
+const LIMIT = LIMIT_ARG;
 const LOCAL_MODE = process.argv.includes("local"); // node scripts/build-wordlist.mjs 3000 local
 const ZIPS = [
   ["1521164668667_CET6_1.zip", "CET6_1"],
@@ -106,7 +111,8 @@ async function main() {
   const top = uniq.slice(0, LIMIT);
   const dir = join(ROOT, "wordlists");
   mkdirSync(dir, { recursive: true });
-  const out = join(dir, `cet6-${LIMIT}.json`);
+  // 输出文件名固定 cet6-3000.json：应用侧（js/13-wordbook.js）硬编码 fetch 该文件
+  const out = join(dir, "cet6-3000.json");
   writeFileSync(out, JSON.stringify(top, null, 0), "utf8");
   console.log(`\n完成：${uniq.length} 唯一词 → 取前 ${top.length} → ${out}（${(top.length * 160 / 1024).toFixed(0)} KB 估算）`);
   console.log("样例：", JSON.stringify(top.slice(0, 3)));

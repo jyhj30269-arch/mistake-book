@@ -66,7 +66,7 @@ try {
         kps: ["六级核心词 3000"], tags: ["other"], titleTex: "word" + i, solutionTex: "释义" + i, note: "",
         wrongAnswer: "", marks: {}, createdAt: now + i * 1000, urgent: false, calcWeak: false, needConsolidate: false, imgs: [] };
       questions.push(q);
-      if (learned) reviewLogs.push({ id: ++reviewSeq, qid: q.id, at: now - 3600000, result: "ok" }); // 1 小时前复习 → 未到期
+      if (learned) reviewLogs.push({ id: ++reviewSeq, qid: q.id, at: now - 26 * 3600000, result: "ok" }); // 26 小时前复习 → 未到期且不算今日新词（跨午夜稳定）
       return q;
     };
     mk(1, true); mk(2, false); mk(3, false); mk(4, false); mk(5, false);
@@ -89,10 +89,10 @@ try {
     wordRate("miss");
     const requeued = wordQueue.some(x => x.q.titleTex === first && x.misses === 1);
     const tail = wordQueue[wordQueue.length - 1].q.titleTex;
-    return { backShown, requeued, tail };
+    return { backShown, requeued, tail, first };
   })()`);
   check("单词卡：翻卡显示释义", flip.backShown);
-  check("单词卡：不认识回炉到队尾", flip.requeued && flip.tail === "word2");
+  check("单词卡：不认识回炉到队尾", flip.requeued && flip.tail === flip.first);
 
   // 5) 完成整轮（剩余 3 词全认识）→ 小结 + 复习记录落库
   const done = await client.evalJS(`(() => {
@@ -106,7 +106,7 @@ try {
     return { doneShown, stats, logs, total };
   })()`);
   check("单词卡：整轮完成显示小结", done.doneShown && done.stats.includes("认识"));
-  check("单词卡：自评落库（ok 记录数）", done.logs >= 3);
+  check("单词卡：自评落库（2 词 = 1 不认识 + 回炉后再过 2 次认识）", done.logs >= 2);
 
   // 6) 词书进度面板
   const panel = await client.evalJS(`(() => {

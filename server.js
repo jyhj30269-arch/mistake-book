@@ -1,7 +1,11 @@
 /* ============================================================
-   个人工作台 · 本地服务（v1.24.0）
+   个人工作台 · 本地服务（v1.25.0）
    托管前端页面 + 提供 API + 数据存本地 SQLite（mistake-book.db）
    启动：node server.js  然后浏览器打开 http://127.0.0.1:8788
+   v1.25.0：全面排查修复——部署安全（HOST/COOKIE_SECURE/注册开关/演示账号开关/
+   uploads 鉴权/路径穿越/源码禁下/静态黑名单）/ 写队列防毒化 / reviewSeq 用 max(id) /
+   OCR_ENGINE 引擎开关（Linux 不静默造假）/ PDF Linux 浏览器 / Cookie Max-Age /
+   本地时区备份 / 恢复原子替换 / 入参校验 / 优雅关闭 / 端口占用提示。
    v1.24.0：背单词学习/复习分离（「开始学习」=新词乱序、「开始复习」=到期词）/
    改良艾宾浩斯：连续答对 3 次判掌握移出复习队列 / 学习队列乱序。
    v1.23.0：背单词下拉子菜单（开始学习/学习记录/困难单词本/查单词）分功能页 /
@@ -38,16 +42,28 @@ const { TREE, QUESTIONS, REVIEW_LOGS } = require("./seed-data.js");
 
 const ROOT = __dirname;
 const PORT = process.env.PORT || 8788;
+const HOST = process.env.HOST || "127.0.0.1";            // 公网直连设 0.0.0.0；Nginx 反代保持 127.0.0.1
 const APP_VERSION = fs.readFileSync(path.join(ROOT, "VERSION"), "utf8").trim(); // 版本号单一来源
 const DB_FILE = process.env.DB_FILE || path.join(ROOT, "mistake-book.db");
-const MINERU_CLI = path.join(process.env.APPDATA || "", "npm", "mineru-open-api.cmd");
-const MINERU_AVAILABLE = fs.existsSync(MINERU_CLI) && process.env.MINERU_DISABLE !== "1";
+const BACKUP_DIR = process.env.BACKUP_DIR || path.join(ROOT, "backups");
+const COOKIE_SECURE = process.env.COOKIE_SECURE === "1"; // HTTPS 反代场景置 1 追加 Secure
+const ALLOW_REGISTER = process.env.ALLOW_REGISTER !== "0"; // 公网部署建议置 0 关闭开放注册
+const DISABLE_DEMO_ACCOUNT = process.env.DISABLE_DEMO_ACCOUNT === "1"; // 公网部署建议置 1 不再创建 admin/admin123
+const OCR_ENGINE = (process.env.OCR_ENGINE || "auto").toLowerCase(); // auto | real | mock | off
+const MINERU_CLI = process.env.MINERU_CLI || path.join(process.env.APPDATA || "", "npm", "mineru-open-api.cmd");
+const MINERU_AVAILABLE = !!MINERU_CLI && fs.existsSync(MINERU_CLI) && process.env.MINERU_DISABLE !== "1";
+/* OCR 引擎模式：auto=有真实 MinerU 用 real（测试 MINERU_DISABLE=1 用 mock），否则 off（明确报错，不静默造假） */
+function ocrEngineMode() {
+  if (OCR_ENGINE === "real" || OCR_ENGINE === "mock" || OCR_ENGINE === "off") return OCR_ENGINE;
+  if (process.env.MINERU_DISABLE === "1") return "mock"; // 测试加速
+  return MINERU_AVAILABLE ? "real" : "off";
+}
 
-/* Node 版本检查：node:sqlite 需要 Node >= 22.5 */
+/* Node 版本检查：node:sqlite 自 v22.13.0 起无需 --experimental-sqlite 标志即可 require */
 (function checkNodeVersion() {
   const v = process.versions.node.split(".").map(Number);
-  if (!(v[0] > 22 || (v[0] === 22 && v[1] >= 5))) {
-    console.error(`当前 Node.js 版本 ${process.versions.node} 过旧：本应用依赖 node:sqlite，需要 Node.js >= 22.5.0。`);
+  if (!(v[0] > 22 || (v[0] === 22 && v[1] >= 13))) {
+    console.error(`当前 Node.js 版本 ${process.versions.node} 过旧：本应用依赖 node:sqlite，需要 Node.js >= 22.13.0（22.5~22.12 需 --experimental-sqlite 标志，不再支持）。`);
     console.error("请到 https://nodejs.org 安装最新的 LTS 版本后重试。");
     process.exit(1);
   }
@@ -183,6 +199,11 @@ function createSession(username) {
   db.prepare("INSERT INTO sessions(token, username, expires_at) VALUES (?,?,?)").run(token, username, expires);
   return { token, expires };
 }
+/* Set-Cookie 组装：Max-Age 为相对秒数（7 天）；HTTPS 反代场景（COOKIE_SECURE=1）追加 Secure */
+function sessionCookie(token, expires) {
+  const maxAge = Math.max(1, Math.round((expires - Date.now()) / 1000));
+  return `mb_session=${token}; Path=/; HttpOnly; Max-Age=${maxAge}; SameSite=Lax${COOKIE_SECURE ? "; Secure" : ""}`;
+}
 function getUserByCookie(req) {
   const m = String(req.headers.cookie || "").match(/mb_session=([^;]+)/);
   if (!m) return null;
@@ -232,13 +253,14 @@ function seedIfEmpty() {
 }
 seedIfEmpty();
 
-/* 演示账号：users 表为空时创建（与题库种子独立，已有数据库也会补建） */
+/* 演示账号：users 表为空时创建（与题库种子独立，已有数据库也会补建）。
+   公网部署建议 DISABLE_DEMO_ACCOUNT=1：不创建已知口令的演示账号，避免 admin/admin123 直接登录 */
 function seedUsersIfEmpty() {
   const n = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
-  if (n === 0) {
+  if (n === 0 && !DISABLE_DEMO_ACCOUNT) {
     db.prepare("INSERT INTO users(username, password_hash, created_at) VALUES (?,?,?)")
       .run("admin", hashPassword("admin123"), Date.now());
-    console.log("已创建演示账号：admin / admin123（可在登录页注册新账号）");
+    console.log("已创建演示账号：admin / admin123（可在登录页注册新账号；公网部署请设 DISABLE_DEMO_ACCOUNT=1 并自行建号）");
   }
 }
 seedUsersIfEmpty();
@@ -264,17 +286,24 @@ function upgradeSeedTree() {
 }
 upgradeSeedTree();
 
-/* 启动自动备份：每天一份（VACUUM INTO 一致性快照），保留最近 7 份 */
+/* 启动自动备份：每天一份（VACUUM INTO 一致性快照），保留最近 7 份；日期用本地时区 */
+function localDay(ts = Date.now()) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 function autoBackup() {
-  const dir = path.join(ROOT, "backups");
-  fs.mkdirSync(dir, { recursive: true });
-  const today = new Date().toISOString().slice(0, 10);
-  const target = path.join(dir, `mistake-book-${today}.db`);
-  if (fs.existsSync(target)) return;
   try {
+    const dir = BACKUP_DIR;
+    fs.mkdirSync(dir, { recursive: true });
+    const today = localDay();
+    const target = path.join(dir, `mistake-book-${today}.db`);
+    if (fs.existsSync(target)) return;
     db.exec(`VACUUM INTO '${target.replace(/'/g, "''")}'`);
     const olds = fs.readdirSync(dir).filter(f => /^mistake-book-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
     while (olds.length > 7) fs.unlinkSync(path.join(dir, olds.shift()));
+    // 恢复前自备份只保留最近 2 份
+    const pres = fs.readdirSync(dir).filter(f => /^pre-restore-.*\.db$/.test(f)).sort();
+    while (pres.length > 2) fs.unlinkSync(path.join(dir, pres.shift()));
     console.log(`已自动备份数据库：${target}`);
   } catch (e) { console.warn("自动备份失败（可忽略）：", e.message); }
 }
@@ -298,14 +327,19 @@ function flattenTree() {
   return subjects;
 }
 
+/* 安全解析 JSON 列：脏数据回退默认值，避免整库读取 500 */
+function jparse(s, fallback) {
+  try { return JSON.parse(s || ""); } catch (e) { return fallback; }
+}
+
 function readQuestions() {
   return db.prepare("SELECT * FROM questions ORDER BY id").all().map(r => ({
     id: r.id, type: r.type, subject: r.subject, subSubject: r.sub_subject, chapter: r.chapter,
-    kps: JSON.parse(r.kps || "[]"), tags: JSON.parse(r.tags || "[]"),
+    kps: jparse(r.kps, []), tags: jparse(r.tags, []),
     titleTex: r.title_tex, solutionTex: r.solution_tex, wrongAnswer: r.wrong_answer,
-    note: r.note, marks: JSON.parse(r.marks || "{}"), createdAt: r.created_at,
+    note: r.note, marks: jparse(r.marks, {}), createdAt: r.created_at,
     urgent: !!r.urgent, calcWeak: !!r.calc_weak, needConsolidate: !!r.need_consolidate,
-    imgs: JSON.parse(r.imgs || "[]")
+    imgs: jparse(r.imgs, [])
   }));
 }
 
@@ -336,7 +370,7 @@ function readTodos() {
   return db.prepare("SELECT id, title, done, due, priority, subtasks, tags, note, remind, created_at FROM todos ORDER BY done, due, priority DESC, id DESC").all()
     .map(r => ({
       id: r.id, title: r.title, done: !!r.done, due: r.due || "", priority: r.priority || 0,
-      subtasks: JSON.parse(r.subtasks || "[]"), tags: JSON.parse(r.tags || "[]"),
+      subtasks: jparse(r.subtasks, []), tags: jparse(r.tags, []),
       note: r.note || "", remind: r.remind || "", createdAt: r.created_at
     }));
 }
@@ -346,7 +380,7 @@ function readGoals() {
     .map(r => ({
       id: r.id, title: r.title, category: r.category, progress: r.progress || 0,
       milestone: r.milestone || "", targetDate: r.target_date || "", status: r.status || "active",
-      linkedTodoIds: JSON.parse(r.linked_todos || "[]"), milestones: JSON.parse(r.milestones || "[]"),
+      linkedTodoIds: jparse(r.linked_todos, []), milestones: jparse(r.milestones, []),
       note: r.note || "", createdAt: r.created_at
     }));
 }
@@ -354,28 +388,28 @@ function readGoals() {
 function readReviews() {
   const rows = db.prepare("SELECT day, done, stuck, plan, mood, stats, updated_at FROM daily_reviews ORDER BY day DESC").all();
   return rows.map(r => ({ day: r.day, done: r.done || "", stuck: r.stuck || "", plan: r.plan || "",
-    mood: r.mood || "", stats: JSON.parse(r.stats || "{}"), updatedAt: r.updated_at }));
+    mood: r.mood || "", stats: jparse(r.stats, {}), updatedAt: r.updated_at }));
 }
 
 function readInbox() {
   return db.prepare("SELECT id, text, tags, status, created_at FROM inbox_items ORDER BY created_at DESC, id DESC").all()
-    .map(r => ({ id: r.id, text: r.text, tags: JSON.parse(r.tags || "[]"), status: r.status || "open", createdAt: r.created_at }));
+    .map(r => ({ id: r.id, text: r.text, tags: jparse(r.tags, []), status: r.status || "open", createdAt: r.created_at }));
 }
 
 function readBookmarks() {
   return db.prepare("SELECT id, title, kind, url, note, tags, created_at FROM bookmarks ORDER BY created_at DESC, id DESC").all()
     .map(r => ({ id: r.id, title: r.title, kind: r.kind || "link", url: r.url || "", note: r.note || "",
-      tags: JSON.parse(r.tags || "[]"), createdAt: r.created_at }));
+      tags: jparse(r.tags, []), createdAt: r.created_at }));
 }
 
 function readReviewSets() {
   return db.prepare("SELECT id, name, qids, created_at FROM review_sets ORDER BY id").all()
-    .map(r => ({ id: r.id, name: r.name, qids: JSON.parse(r.qids || "[]"), createdAt: r.created_at }));
+    .map(r => ({ id: r.id, name: r.name, qids: jparse(r.qids, []), createdAt: r.created_at }));
 }
 
 function readHabits() {
   return db.prepare("SELECT id, name, done_days, created_at FROM habits ORDER BY id").all()
-    .map(r => ({ id: r.id, name: r.name, doneDays: JSON.parse(r.done_days || "[]"), createdAt: r.created_at }));
+    .map(r => ({ id: r.id, name: r.name, doneDays: jparse(r.done_days, []), createdAt: r.created_at }));
 }
 
 function readPersonal() {
@@ -406,12 +440,12 @@ function getDb() {
     moduleOn: (() => { try { return JSON.parse(s.module_on || "{}"); } catch (e) { return {}; } })(),
     remindDate: s.remindDate || "",
     reviewResume: (() => { try { return JSON.parse(s.reviewResume || "null"); } catch (e) { return null; } })(),
-    reviewCfg: JSON.parse(s.reviewCfg || '{"sub":"all","chapter":"","lv":"all","num":3}'),
+    reviewCfg: jparse(s.reviewCfg, { sub: "all", chapter: "", lv: "all", num: 3 }),
     personal: readPersonal(),
     reviewSets: readReviewSets(),
     habits: readHabits(),
-    qidSeq: Math.max(100, ...questions.map(q => q.id || 0)),
-    reviewSeq: reviewLogs.length || 0
+    qidSeq: questions.reduce((m, q) => Math.max(m, q.id || 0), 100),
+    reviewSeq: reviewLogs.reduce((m, l) => Math.max(m, l.id || 0), 0)
   };
 }
 
@@ -521,6 +555,13 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+/* 安全删除 uploads 文件：只接受 /uploads/bm- 前缀的随机文件名，防路径穿越 */
+function unlinkUpload(urlOrPath) {
+  const name = String(urlOrPath || "").split("/").pop();
+  if (!/^bm-[0-9a-f]{16}\.[a-z0-9]+$/i.test(name)) return;
+  try { fs.unlinkSync(path.join(ROOT, "uploads", name)); } catch (e) { /* 不存在或失败可忽略 */ }
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
@@ -532,17 +573,20 @@ function readBody(req) {
   });
 }
 
-/* ---------- MinerU 真实识别（官方 CLI：extract 优先，flash-extract 回退） ---------- */
+/* ---------- MinerU 真实识别（官方 CLI：extract 优先，flash-extract 回退；Windows .cmd / Linux 二进制均可） ---------- */
 function mineruRecognize(dataUrl) {
   return new Promise((resolve, reject) => {
     const buf = Buffer.from(String(dataUrl || "").split(",")[1] || "", "base64");
     if (!buf.length) return reject(new Error("图片数据为空"));
     const tmp = path.join(os.tmpdir(), `mb-ocr-${Date.now()}-${Math.floor(Math.random() * 1e6)}.png`);
     fs.writeFileSync(tmp, buf);
+    const isWin = process.platform === "win32";
     const run = (args, done) => {
-      execFile("cmd.exe", ["/c", MINERU_CLI, ...args], {
+      // Windows 用 cmd /c（.cmd 脚本）；Linux 直接执行 mineru CLI 二进制（需 chmod +x）
+      if (isWin) execFile("cmd.exe", ["/c", MINERU_CLI, ...args], {
         timeout: 240000, maxBuffer: 20 * 1024 * 1024, windowsHide: true
       }, done);
+      else execFile(MINERU_CLI, args, { timeout: 240000, maxBuffer: 20 * 1024 * 1024 }, done);
     };
     const cleanup = () => fs.unlink(tmp, () => {});
     run(["extract", tmp, "-f", "md", "--model", "pipeline", "--ocr", "--formula"], (err, stdout, stderr) => {
@@ -570,16 +614,20 @@ function queueOcr(body) {
   ocrQueue = ocrQueue.then(async () => {
     const t0 = Date.now();
     const isSolution = !!body.isSolution;
+    const mode = ocrEngineMode();
     try {
       let r;
-      if (MINERU_AVAILABLE) {
+      if (mode === "real") {
         r = await mineruRecognize(body.dataUrl);
-      } else {
-        // 模拟识别（测试加速：150-250ms/张）
+      } else if (mode === "mock") {
+        // 模拟识别（测试加速：150-250ms/张，仅 MINERU_DISABLE=1 或 OCR_ENGINE=mock 时启用）
         await new Promise(rs => setTimeout(rs, 150 + Math.random() * 100));
         r = { text: isSolution
           ? "1 - \\cos x \\sim \\frac{x^2}{2}，x \\sin x \\sim x^2，故极限 = \\frac{1}{2}"
           : "\\lim_{x \\to 0} \\frac{1 - \\cos x}{x \\sin x}", source: "mock-server" };
+      } else {
+        // off：生产环境未配置真实 OCR 时明确报错，绝不把模拟文本当真识别结果入库
+        throw new Error("OCR 未配置：服务器未检测到 mineru-open-api。请安装并设置 MINERU_CLI，或显式设置 OCR_ENGINE=mock 使用模拟识别（仅测试用）");
       }
       ocrTasks.set(taskId, {
         status: "done", finishedAt: Date.now(),
@@ -628,7 +676,9 @@ async function hotFetch(path) {
 const PDF_BROWSERS = [
   process.env.PDF_BROWSER || "",
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable",
+  "/snap/bin/chromium"
 ].filter(Boolean);
 function findPdfBrowser() {
   return PDF_BROWSERS.find(p => fs.existsSync(p)) || null;
@@ -737,6 +787,12 @@ setInterval(() => {
 
 /* ---------- HTTP 路由 ---------- */
 let writeQueue = Promise.resolve();
+/* 写任务入队：单点失败不毒化队列（失败仍抛给调用方的 try/catch 处理，后续请求不受影响） */
+function enqueueWrite(fn) {
+  const task = writeQueue.catch(() => {}).then(fn);
+  writeQueue = task.catch(() => {});
+  return task;
+}
 
 /* 会话鉴权：除登录/注册/会话查询/试卷 HTML（随机 token 保护）外，所有 API 必须已登录 */
 function requireSession(req, res) {
@@ -761,6 +817,7 @@ const server = http.createServer(async (req, res) => {
     if (!publicPath && !requireSession(req, res)) return;
     // 账号与会话
     if (p === "/api/auth/register" && req.method === "POST") {
+      if (!ALLOW_REGISTER) return sendJson(res, 403, { code: 40301, message: "注册已关闭（管理员部署时设置 ALLOW_REGISTER=0）" });
       try {
         const body = await readBody(req);
         const name = String(body.username || "").trim();
@@ -771,7 +828,7 @@ const server = http.createServer(async (req, res) => {
         if (exists) return sendJson(res, 409, { code: 40901, message: "用户名已存在" });
         db.prepare("INSERT INTO users(username, password_hash, created_at) VALUES (?,?,?)").run(name, hashPassword(pw), Date.now());
         const { token, expires } = createSession(name);
-        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Set-Cookie": `mb_session=${token}; Path=/; HttpOnly; Max-Age=${Math.floor(expires / 1000)}; SameSite=Lax` });
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Set-Cookie": sessionCookie(token, expires) });
         res.end(JSON.stringify({ ok: true, user: name }));
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
@@ -783,7 +840,7 @@ const server = http.createServer(async (req, res) => {
         const row = db.prepare("SELECT password_hash FROM users WHERE username = ?").get(name);
         if (!row || !verifyPassword(String(body.password || ""), row.password_hash)) return sendJson(res, 401, { code: 40101, message: "用户名或密码错误" });
         const { token, expires } = createSession(name);
-        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Set-Cookie": `mb_session=${token}; Path=/; HttpOnly; Max-Age=${Math.floor(expires / 1000)}; SameSite=Lax` });
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Set-Cookie": sessionCookie(token, expires) });
         res.end(JSON.stringify({ ok: true, user: name }));
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
@@ -805,8 +862,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/db" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        writeQueue = writeQueue.then(() => saveDb(body));
-        const r = await writeQueue;
+        const r = await enqueueWrite(() => saveDb(body));
         sendJson(res, 200, r);
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
@@ -819,7 +875,7 @@ const server = http.createServer(async (req, res) => {
         const list = Array.isArray(body.questions) ? body.questions : [];
         if (!list.length) return sendJson(res, 400, { code: 40001, message: "题目列表为空" });
         if (list.length > 10000) return sendJson(res, 400, { code: 40002, message: "单次最多 10000 条" });
-        writeQueue = writeQueue.then(() => {
+        await enqueueWrite(() => {
           const insQ = db.prepare(`INSERT OR IGNORE INTO questions
             (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
              wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate, imgs)
@@ -843,7 +899,7 @@ const server = http.createServer(async (req, res) => {
         const body = await readBody(req);
         const ids = Array.isArray(body.ids) ? body.ids.filter(x => Number.isInteger(x)) : [];
         if (!ids.length) return sendJson(res, 400, { code: 40001, message: "id 列表为空" });
-        writeQueue = writeQueue.then(() => {
+        await enqueueWrite(() => {
           const delQ = db.prepare("DELETE FROM questions WHERE id = ?");
           const delL = db.prepare("DELETE FROM review_logs WHERE qid = ?");
           for (const id of ids) { delQ.run(id); delL.run(id); }
@@ -852,10 +908,12 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true, deleted: ids.length });
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
-    }    if (p === "/api/questions" && req.method === "POST") {
+    }
+    if (p === "/api/questions" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        writeQueue = writeQueue.then(() => {
+        if (!Number.isInteger(body.id)) return sendJson(res, 400, { code: 40003, message: "题目 id 必须是整数" });
+        await enqueueWrite(() => {
           const insQ = db.prepare(`INSERT INTO questions
             (id, type, subject, sub_subject, chapter, kps, tags, title_tex, solution_tex,
              wrong_answer, note, marks, created_at, urgent, calc_weak, need_consolidate, imgs)
@@ -866,7 +924,6 @@ const server = http.createServer(async (req, res) => {
             body.urgent ? 1 : 0, body.calcWeak ? 1 : 0, body.needConsolidate ? 1 : 0,
             JSON.stringify(body.imgs || []));
         });
-        await writeQueue;
         sendJson(res, 200, { ok: true, id: body.id });
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
@@ -875,7 +932,7 @@ const server = http.createServer(async (req, res) => {
     if (putM && req.method === "PUT") {
       try {
         const body = await readBody(req);
-        writeQueue = writeQueue.then(() => {
+        await enqueueWrite(() => {
           db.prepare(`UPDATE questions SET type=?, subject=?, sub_subject=?, chapter=?, kps=?, tags=?,
             title_tex=?, solution_tex=?, wrong_answer=?, note=?, marks=?, urgent=?, calc_weak=?,
             need_consolidate=?, imgs=? WHERE id=?`)
@@ -893,18 +950,21 @@ const server = http.createServer(async (req, res) => {
     const delM = p.match(/^\/api\/questions\/(\d+)$/);
     if (delM && req.method === "DELETE") {
       const id = Number(delM[1]);
-      writeQueue = writeQueue.then(() => {
+      await enqueueWrite(() => {
+        // 连带清理题目原图（uploads/bm-*），避免孤儿文件累积
+        const row = db.prepare("SELECT imgs FROM questions WHERE id = ?").get(id);
+        const imgs = row ? jparse(row.imgs, []) : [];
         db.prepare("DELETE FROM review_logs WHERE qid = ?").run(id);
         db.prepare("DELETE FROM questions WHERE id = ?").run(id);
+        for (const u of imgs) unlinkUpload(u);
       });
-      await writeQueue;
       sendJson(res, 200, { ok: true });
       return;
     }
     if (p === "/api/review-logs" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare("INSERT INTO review_logs(id, qid, at, result) VALUES (?,?,?,?)").run(body.id, body.qid, body.at, body.result));
+        await enqueueWrite(() => db.prepare("INSERT INTO review_logs(id, qid, at, result) VALUES (?,?,?,?)").run(body.id, body.qid, body.at, body.result));
         await writeQueue;
         sendJson(res, 200, { ok: true });
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
@@ -913,14 +973,13 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/study" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        writeQueue = writeQueue.then(() => {
+        await enqueueWrite(() => {
           db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('study_seconds', ?)").run(String(body.seconds || 0));
           if (typeof body.blurPrompt === "boolean") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('blur_prompt', ?)").run(String(body.blurPrompt));
-          const days = body.perDay || {};
+          const days = (body.perDay && typeof body.perDay === "object" && !Array.isArray(body.perDay)) ? body.perDay : {};
           const ins = db.prepare("INSERT INTO study_days(day, seconds) VALUES (?,?) ON CONFLICT(day) DO UPDATE SET seconds=excluded.seconds");
-          for (const [day, sec] of Object.entries(days)) ins.run(String(day), Number(sec) || 0);
+          for (const [day, sec] of Object.entries(days)) ins.run(String(day).slice(0, 32), Number(sec) || 0);
         });
-        await writeQueue;
         sendJson(res, 200, { ok: true });
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
@@ -928,7 +987,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/settings" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        writeQueue = writeQueue.then(() => {
+        await enqueueWrite(() => {
           if (typeof body.remindOn === "boolean") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('remindOn', ?)").run(String(body.remindOn));
           if (body.reviewCfg && typeof body.reviewCfg === "object") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('reviewCfg', ?)").run(JSON.stringify(body.reviewCfg));
           if (body.theme && typeof body.theme === "string") db.prepare("INSERT OR REPLACE INTO settings(key, value) VALUES ('theme', ?)").run(body.theme);
@@ -948,7 +1007,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/tree" && req.method === "POST") {
       try {
         const body = await readBody(req);
-        writeQueue = writeQueue.then(() => {
+        await enqueueWrite(() => {
           db.exec("DELETE FROM nodes");
           const insN = db.prepare("INSERT INTO nodes(id, parent_id, name, kind, ord) VALUES (?,?,?,?,?)");
           let ord = 0;
@@ -971,7 +1030,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/todos" && req.method === "POST") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO todos(id, title, done, due, priority, subtasks, tags, note, remind, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
+        await enqueueWrite(() => db.prepare(`INSERT INTO todos(id, title, done, due, priority, subtasks, tags, note, remind, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
           .run(b.id ?? null, String(b.title || "").slice(0, 200), b.done ? 1 : 0, b.due || "", b.priority || 0,
             JSON.stringify(b.subtasks || []), JSON.stringify(b.tags || []), b.note || "", b.remind || "", b.createdAt || Date.now()));
         await writeQueue;
@@ -983,7 +1042,7 @@ const server = http.createServer(async (req, res) => {
     if (todoM && req.method === "PUT") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`UPDATE todos SET title=?, done=?, due=?, priority=?, subtasks=?, tags=?, note=?, remind=? WHERE id=?`)
+        await enqueueWrite(() => db.prepare(`UPDATE todos SET title=?, done=?, due=?, priority=?, subtasks=?, tags=?, note=?, remind=? WHERE id=?`)
           .run(String(b.title || "").slice(0, 200), b.done ? 1 : 0, b.due || "", b.priority || 0,
             JSON.stringify(b.subtasks || []), JSON.stringify(b.tags || []), b.note || "", b.remind || "", Number(todoM[1])));
         await writeQueue;
@@ -992,7 +1051,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (todoM && req.method === "DELETE") {
-      writeQueue = writeQueue.then(() => db.prepare("DELETE FROM todos WHERE id = ?").run(Number(todoM[1])));
+      await enqueueWrite(() => db.prepare("DELETE FROM todos WHERE id = ?").run(Number(todoM[1])));
       await writeQueue;
       sendJson(res, 200, { ok: true });
       return;
@@ -1000,7 +1059,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/goals" && req.method === "POST") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO goals(id, title, category, progress, milestone, target_date, status, linked_todos, milestones, note, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+        await enqueueWrite(() => db.prepare(`INSERT INTO goals(id, title, category, progress, milestone, target_date, status, linked_todos, milestones, note, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
           .run(b.id ?? null, String(b.title || "").slice(0, 200), b.category || "学习", b.progress || 0, b.milestone || "",
             b.targetDate || "", b.status || "active", JSON.stringify(b.linkedTodoIds || []),
             JSON.stringify(b.milestones || []), b.note || "", b.createdAt || Date.now()));
@@ -1013,7 +1072,7 @@ const server = http.createServer(async (req, res) => {
     if (goalM && req.method === "PUT") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`UPDATE goals SET title=?, category=?, progress=?, milestone=?, target_date=?, status=?, linked_todos=?, milestones=?, note=? WHERE id=?`)
+        await enqueueWrite(() => db.prepare(`UPDATE goals SET title=?, category=?, progress=?, milestone=?, target_date=?, status=?, linked_todos=?, milestones=?, note=? WHERE id=?`)
           .run(String(b.title || "").slice(0, 200), b.category || "学习", b.progress || 0, b.milestone || "",
             b.targetDate || "", b.status || "active", JSON.stringify(b.linkedTodoIds || []),
             JSON.stringify(b.milestones || []), b.note || "", Number(goalM[1])));
@@ -1023,7 +1082,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (goalM && req.method === "DELETE") {
-      writeQueue = writeQueue.then(() => db.prepare("DELETE FROM goals WHERE id = ?").run(Number(goalM[1])));
+      await enqueueWrite(() => db.prepare("DELETE FROM goals WHERE id = ?").run(Number(goalM[1])));
       await writeQueue;
       sendJson(res, 200, { ok: true });
       return;
@@ -1031,7 +1090,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/daily-reviews" && req.method === "POST") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO daily_reviews(day, done, stuck, plan, mood, stats, updated_at) VALUES (?,?,?,?,?,?,?)
+        await enqueueWrite(() => db.prepare(`INSERT INTO daily_reviews(day, done, stuck, plan, mood, stats, updated_at) VALUES (?,?,?,?,?,?,?)
           ON CONFLICT(day) DO UPDATE SET done=excluded.done, stuck=excluded.stuck, plan=excluded.plan,
           mood=excluded.mood, stats=excluded.stats, updated_at=excluded.updated_at`)
           .run(b.day, b.done || "", b.stuck || "", b.plan || "", b.mood || "",
@@ -1044,7 +1103,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/inbox" && req.method === "POST") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO inbox_items(id, text, tags, status, created_at) VALUES (?,?,?,?,?)`)
+        await enqueueWrite(() => db.prepare(`INSERT INTO inbox_items(id, text, tags, status, created_at) VALUES (?,?,?,?,?)`)
           .run(b.id ?? null, String(b.text || "").slice(0, 1000), JSON.stringify(b.tags || []), b.status || "open", b.createdAt || Date.now()));
         await writeQueue;
         sendJson(res, 200, { ok: true, id: b.id });
@@ -1055,7 +1114,7 @@ const server = http.createServer(async (req, res) => {
     if (inboxM && req.method === "PUT") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`UPDATE inbox_items SET text=?, tags=?, status=? WHERE id=?`)
+        await enqueueWrite(() => db.prepare(`UPDATE inbox_items SET text=?, tags=?, status=? WHERE id=?`)
           .run(String(b.text || "").slice(0, 1000), JSON.stringify(b.tags || []), b.status || "open", Number(inboxM[1])));
         await writeQueue;
         sendJson(res, 200, { ok: true });
@@ -1063,7 +1122,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (inboxM && req.method === "DELETE") {
-      writeQueue = writeQueue.then(() => db.prepare("DELETE FROM inbox_items WHERE id = ?").run(Number(inboxM[1])));
+      await enqueueWrite(() => db.prepare("DELETE FROM inbox_items WHERE id = ?").run(Number(inboxM[1])));
       await writeQueue;
       sendJson(res, 200, { ok: true });
       return;
@@ -1071,7 +1130,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/bookmarks" && req.method === "POST") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO bookmarks(id, title, kind, url, note, tags, created_at) VALUES (?,?,?,?,?,?,?)`)
+        await enqueueWrite(() => db.prepare(`INSERT INTO bookmarks(id, title, kind, url, note, tags, created_at) VALUES (?,?,?,?,?,?,?)`)
           .run(b.id ?? null, String(b.title || "").slice(0, 200), b.kind || "link",
             String(b.url || "").slice(0, 2000), String(b.note || "").slice(0, 1000),
             JSON.stringify(b.tags || []), b.createdAt || Date.now()));
@@ -1084,7 +1143,7 @@ const server = http.createServer(async (req, res) => {
     if (bmM && req.method === "PUT") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`UPDATE bookmarks SET title=?, kind=?, url=?, note=?, tags=? WHERE id=?`)
+        await enqueueWrite(() => db.prepare(`UPDATE bookmarks SET title=?, kind=?, url=?, note=?, tags=? WHERE id=?`)
           .run(String(b.title || "").slice(0, 200), b.kind || "link",
             String(b.url || "").slice(0, 2000), String(b.note || "").slice(0, 1000),
             JSON.stringify(b.tags || []), Number(bmM[1])));
@@ -1096,7 +1155,7 @@ const server = http.createServer(async (req, res) => {
     if (bmM && req.method === "DELETE") {
       try {
         const id = Number(bmM[1]);
-        writeQueue = writeQueue.then(() => {
+        await enqueueWrite(() => {
           const row = db.prepare("SELECT url FROM bookmarks WHERE id = ?").get(id);
           db.prepare("DELETE FROM bookmarks WHERE id = ?").run(id);
           // 连带删除上传的文件（仅限本应用生成的上传文件）
@@ -1114,7 +1173,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/review-sets" && req.method === "POST") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO review_sets(id, name, qids, created_at) VALUES (?,?,?,?)`)
+        await enqueueWrite(() => db.prepare(`INSERT INTO review_sets(id, name, qids, created_at) VALUES (?,?,?,?)`)
           .run(b.id ?? null, String(b.name || "").slice(0, 100), JSON.stringify(b.qids || []), b.createdAt || Date.now()));
         await writeQueue;
         sendJson(res, 200, { ok: true, id: b.id });
@@ -1125,7 +1184,7 @@ const server = http.createServer(async (req, res) => {
     if (rsM && req.method === "PUT") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`UPDATE review_sets SET name=?, qids=? WHERE id=?`)
+        await enqueueWrite(() => db.prepare(`UPDATE review_sets SET name=?, qids=? WHERE id=?`)
           .run(String(b.name || "").slice(0, 100), JSON.stringify(b.qids || []), Number(rsM[1])));
         await writeQueue;
         sendJson(res, 200, { ok: true });
@@ -1133,7 +1192,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (rsM && req.method === "DELETE") {
-      writeQueue = writeQueue.then(() => db.prepare("DELETE FROM review_sets WHERE id = ?").run(Number(rsM[1])));
+      await enqueueWrite(() => db.prepare("DELETE FROM review_sets WHERE id = ?").run(Number(rsM[1])));
       await writeQueue;
       sendJson(res, 200, { ok: true });
       return;
@@ -1142,7 +1201,7 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/habits" && req.method === "POST") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`INSERT INTO habits(id, name, done_days, created_at) VALUES (?,?,?,?)`)
+        await enqueueWrite(() => db.prepare(`INSERT INTO habits(id, name, done_days, created_at) VALUES (?,?,?,?)`)
           .run(b.id ?? null, String(b.name || "").slice(0, 50), JSON.stringify(b.doneDays || []), b.createdAt || Date.now()));
         await writeQueue;
         sendJson(res, 200, { ok: true, id: b.id });
@@ -1153,7 +1212,7 @@ const server = http.createServer(async (req, res) => {
     if (habitM && req.method === "PUT") {
       try {
         const b = await readBody(req);
-        writeQueue = writeQueue.then(() => db.prepare(`UPDATE habits SET name=?, done_days=? WHERE id=?`)
+        await enqueueWrite(() => db.prepare(`UPDATE habits SET name=?, done_days=? WHERE id=?`)
           .run(String(b.name || "").slice(0, 50), JSON.stringify(b.doneDays || []), Number(habitM[1])));
         await writeQueue;
         sendJson(res, 200, { ok: true });
@@ -1161,18 +1220,22 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (habitM && req.method === "DELETE") {
-      writeQueue = writeQueue.then(() => db.prepare("DELETE FROM habits WHERE id = ?").run(Number(habitM[1])));
+      await enqueueWrite(() => db.prepare("DELETE FROM habits WHERE id = ?").run(Number(habitM[1])));
       await writeQueue;
       sendJson(res, 200, { ok: true });
       return;
     }
     if (p === "/api/reset" && req.method === "POST") {
       try {
-        writeQueue = writeQueue.then(() => {
+        await enqueueWrite(() => {
           db.exec("DELETE FROM questions; DELETE FROM review_logs; DELETE FROM nodes; DELETE FROM settings; DELETE FROM study_days; DELETE FROM todos; DELETE FROM goals; DELETE FROM daily_reviews; DELETE FROM inbox_items; DELETE FROM bookmarks; DELETE FROM review_sets; DELETE FROM habits;");
           seedIfEmpty();
         });
-        await writeQueue;
+        // 重置 = 全新开始，清空上传文件
+        try {
+          const upDir = path.join(ROOT, "uploads");
+          if (fs.existsSync(upDir)) for (const f of fs.readdirSync(upDir)) fs.unlinkSync(path.join(upDir, f));
+        } catch (e) { console.warn("清理上传目录失败（可忽略）：", e.message); }
         sendJson(res, 200, { ok: true });
       } catch (e) { sendJson(res, 400, { code: 40000, message: e.message }); }
       return;
@@ -1183,7 +1246,7 @@ const server = http.createServer(async (req, res) => {
         db.exec(`VACUUM INTO '${backupFile.replace(/'/g, "''")}'`);
         const buf = fs.readFileSync(backupFile);
         fs.unlink(backupFile, () => {});
-        const day = new Date().toISOString().slice(0, 10);
+        const day = localDay();
         res.writeHead(200, {
           "Content-Type": "application/octet-stream",
           "Content-Disposition": `attachment; filename="mistake-book-backup-${day}.db"`
@@ -1200,17 +1263,30 @@ const server = http.createServer(async (req, res) => {
         if (buf.slice(0, 15).toString("latin1") !== "SQLite format 3") {
           return sendJson(res, 400, { code: 40002, message: "不是有效的 SQLite 备份文件" });
         }
-        // 恢复前先把当前库备份到 backups/（安全网）
-        const pre = path.join(ROOT, "backups", `pre-restore-${Date.now()}.db`);
-        try { fs.mkdirSync(path.join(ROOT, "backups"), { recursive: true }); db.exec(`VACUUM INTO '${pre.replace(/'/g, "''")}'`); }
-        catch (e) { console.warn("恢复前自备份失败（可忽略）：", e.message); }
-        writeQueue = writeQueue.then(() => {
+        // 恢复前先把当前库备份到 backups/（安全网，只保留最近 2 份）
+        const pre = path.join(BACKUP_DIR, `pre-restore-${Date.now()}.db`);
+        try {
+          fs.mkdirSync(BACKUP_DIR, { recursive: true });
+          db.exec(`VACUUM INTO '${pre.replace(/'/g, "''")}'`);
+          const pres = fs.readdirSync(BACKUP_DIR).filter(f => /^pre-restore-.*\.db$/.test(f)).sort();
+          while (pres.length > 2) fs.unlinkSync(path.join(BACKUP_DIR, pres.shift()));
+        } catch (e) { console.warn("恢复前自备份失败（可忽略）：", e.message); }
+        await enqueueWrite(() => {
           db.close();
-          fs.writeFileSync(DB_FILE, buf);
+          // 写盘失败时 try/catch 内重开连接，避免句柄永久关闭导致后续 500；替换前清理旧 WAL 防止重放
+          try {
+            ["-wal", "-shm"].forEach(suf => { const f = DB_FILE + suf; if (fs.existsSync(f)) fs.unlinkSync(f); });
+            const tmp = DB_FILE + ".restore-tmp";
+            fs.writeFileSync(tmp, buf);
+            fs.renameSync(tmp, DB_FILE); // 原子替换
+          } catch (e2) {
+            db = new DatabaseSync(DB_FILE);
+            initDb();
+            throw e2;
+          }
           db = new DatabaseSync(DB_FILE);
           initDb();
         });
-        await writeQueue;
         sendJson(res, 200, { ok: true });
       } catch (e) { sendJson(res, 400, { code: 40000, message: "恢复失败：" + e.message }); }
       return;
@@ -1331,14 +1407,26 @@ const server = http.createServer(async (req, res) => {
   let rel;
   try { rel = p === "/" ? "index.html" : decodeURIComponent(p).replace(/^\/+/, ""); }
   catch (e) { sendJson(res, 400, { code: 40000, message: "URL 编码无效" }); return; }
-  // 禁止下载敏感文件：.git 目录、SQLite 数据库、node_modules
+  // 禁止下载敏感文件：.git、SQLite 数据库、node_modules、服务端源码（根目录 .js）、配置与备份
   const lower = rel.toLowerCase();
-  if (/(^|\/)\.git(\/|$)/.test(lower) || /\.db(-wal|-shm)?$/.test(lower) || /(^|\/)node_modules(\/|$)/.test(lower)) {
+  const denyRe = /(^|\/)\.git(\/|$)|\.db(-wal|-shm)?$|(^|\/)node_modules(\/|$)|(^|\/)(server\.js|seed-data\.js|package\.json|package-lock\.json|VERSION|AGENTS\.md|start\.bat|\.gitignore)$|(^|\/)backups(\/|$)/;
+  if (denyRe.test(lower)) {
     sendJson(res, 403, { code: 40300, message: "禁止访问" });
     return;
   }
+  // 路径穿越防护：拒绝任何包含 .. 段（含 %2e%2e 解码后）的路径，并要求 join 后仍在 ROOT 内
+  const segs = rel.split(/[\\/]/);
+  if (segs.some(s => s === "..")) { sendJson(res, 403, { code: 40300, message: "禁止访问" }); return; }
   const file = path.normalize(path.join(ROOT, rel));
-  if (!file.startsWith(ROOT)) { sendJson(res, 403, { code: 40300, message: "禁止访问" }); return; }
+  if (!file.startsWith(ROOT + path.sep) && file !== path.join(ROOT, "index.html")) {
+    sendJson(res, 403, { code: 40300, message: "禁止访问" });
+    return;
+  }
+  // uploads/ 下为个人学习资料，需要登录后才能访问（浏览器同源加载 <img> 会自动携带 Cookie）
+  if (lower.startsWith("uploads/") && !getUserByCookie(req)) {
+    sendJson(res, 401, { code: 40100, message: "未登录" });
+    return;
+  }
   fs.readFile(file, (err, buf) => {
     if (err) {
       res.writeHead(404).end("404");
@@ -1355,18 +1443,35 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "127.0.0.1", () => {
+server.on("error", (e) => {
+  if (e.code === "EADDRINUSE") console.error(`端口 ${PORT} 已被占用（绑定 ${HOST}），可能服务已在运行。`);
+  else console.error("服务启动失败：", e.message);
+  process.exit(1);
+});
+/* 优雅关闭：pm2 / systemd 停止时先关数据库再退出 */
+function gracefulShutdown() {
+  try { db.close(); } catch (e) { /* 忽略 */ }
+  process.exit(0);
+}
+process.on("SIGTERM", gracefulShutdown);
+process.on("SIGINT", gracefulShutdown);
+
+server.listen(PORT, HOST, () => {
   const dbSize = fs.existsSync(DB_FILE) ? Math.max(1, Math.round(fs.statSync(DB_FILE).size / 1024)) : 0;
   const upDir = path.join(ROOT, "uploads");
   const upCount = fs.existsSync(upDir) ? fs.readdirSync(upDir).filter(f => !fs.statSync(path.join(upDir, f)).isDirectory()).length : 0;
   const qCount = db.prepare("SELECT COUNT(*) AS n FROM questions").get().n;
   const uCount = db.prepare("SELECT COUNT(*) AS n FROM users").get().n;
+  const ocrMode = ocrEngineMode();
   console.log("==============================================");
-  console.log(`个人工作台本地服务已启动：http://127.0.0.1:${PORT}`);
-  console.log(`版本：v${APP_VERSION} · Node ${process.versions.node}`);
+  console.log(`个人工作台本地服务已启动：http://${HOST === "0.0.0.0" ? "127.0.0.1" : HOST}:${PORT}`);
+  console.log(`版本：v${APP_VERSION} · Node ${process.versions.node} · 绑定 ${HOST}:${PORT}`);
   console.log(`数据库：${DB_FILE}（${dbSize} KB · 题目 ${qCount} 道 · 账号 ${uCount} 个）`);
-  console.log(`备份：backups/ 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
-  console.log(`OCR：${MINERU_AVAILABLE ? "MinerU 真实识别（mineru-open-api）" : "模拟识别（未检测到 mineru-open-api）"}`);
+  console.log(`备份：${BACKUP_DIR} 每日自动（保留 7 份） · 上传文件 ${upCount} 个`);
+  console.log(`OCR：${ocrMode === "real" ? "MinerU 真实识别" : ocrMode === "mock" ? "模拟识别（测试）" : "未配置（生产请安装 mineru-open-api 或设 OCR_ENGINE=mock）"}`);
+  if (!ALLOW_REGISTER) console.log("注册：已关闭（ALLOW_REGISTER=0）");
+  if (DISABLE_DEMO_ACCOUNT) console.log("演示账号：已禁用（DISABLE_DEMO_ACCOUNT=1）");
+  if (COOKIE_SECURE) console.log("Cookie：Secure（COOKIE_SECURE=1，需 HTTPS）");
   console.log("按 Ctrl+C 停止服务");
   console.log("==============================================");
 });

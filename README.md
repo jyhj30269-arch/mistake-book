@@ -4,11 +4,12 @@
 
 ## 版本
 
-- 当前版本：**v1.24.0**
+- 当前版本：**v1.25.0**
 - 版本规则见 `AGENTS.md`：每次修改代码必须升级版本号并推送到 GitHub。
 
-## 当前能力（v1.24.0）
+## 当前能力（v1.25.0）
 
+- v1.25.0（全面排查修复 · 阿里云部署准备）：**服务端部署与安全**——新增 `HOST`（默认 127.0.0.1，公网直连设 0.0.0.0）、`ALLOW_REGISTER=0`（关闭开放注册）、`DISABLE_DEMO_ACCOUNT=1`（不再自动创建 admin/admin123 演示账号，公网必配）、`COOKIE_SECURE=1`（HTTPS 反代）、`OCR_ENGINE`（real/mock/off：Linux 无 MinerU 时识别明确报错，**绝不把模拟文本当真结果入库**）、`MINERU_CLI`（Linux 可指向 mineru 二进制）、`BACKUP_DIR`；静态文件修复路径穿越（`..` 段拒绝 + 边界校验）、禁止下载服务端源码/配置/备份、**`/uploads/` 个人资料需登录后访问**；Cookie `Max-Age` 修正为相对秒数（原误用 epoch 秒导致 55 年不过期）；备份文件名改本地时区（原 UTC 早晨差一天）；写队列防毒化（单请求失败不再导致后续所有写入静默丢失）；`reviewSeq` 改为按最大 id 计数（删除题目后新复习记录不再主键冲突）；`qidSeq` 用 reduce 防大数组栈溢出；全部 JSON 列解析加容错（脏数据不再整库 500）；恢复改为临时文件原子替换 + 失败自动重开连接 + 清理旧 WAL；端口占用友好提示、SIGTERM/SIGINT 优雅关闭、PDF 导出支持 Linux 浏览器路径。**前端**——题库列表知识点列补 `esc()`（修复存储型 XSS）；推荐算法修复无错因标签题目得分 `-Infinity` 导致被饿死；进行中的复习/背单词会话不再被导航往返与跨标签同步强制重置；单词会话切页后不再劫持仪表盘快捷键；`quickRate` 加急/薄弱标记补持久化；断点续传对已删除题目重算下标；子任务/里程碑 id 计数随数据恢复（刷新后勾选/删除不再错位）；删除知识点只移除该知识点（不再清空题目全部知识点）；内置词书章节禁止删除（防重导同 id 重复题）；覆盖导入后重算个人数据 id 计数器；背单词统计全部改日志索引（3000 词量级不再卡顿数秒）、「今日到期」与复习按钮口径统一（已掌握不计）、每日新词上限按日累计（重复点击不再突破）、日历到期分布预计算；版本号/文档/测试基建同步（verify-review-algo 补真实断言、api-test 修复假绿、verify-v19 适配乱序、CI 补齐 3 个测试、README 新增 Linux 云端部署章节）。
 - v1.24.0（背单词 学习/复习分离 + 改良艾宾浩斯 + 乱序）：**「开始学习」与「开始复习」两个独立按钮**——📖 学习 = 今日新词（每日上限，**乱序**）；🔁 复习 = 今日到期词（**已掌握的不再出现**，按到期紧急度分组、同日乱序）。**改良艾宾浩斯遗忘曲线**——认识/模糊/不会三档反馈各自推进下次复习间隔（认识按难度系数递增 1→3→8→20 天；模糊间隔减半且难度 −0.1；不会重置为 1 天且难度 −0.2、记一次重学），**连续答对 3 次判定「完全掌握」，移出复习队列**不再打扰；学习/复习/困难单词三种会话小结标题区分。**统计口径统一**——「今日到期」与「开始复习（N）」按钮数字一致（已掌握词不计到期）。**队列乱序**——新词学习、困难单词本复习均洗牌，不再按字母/导入顺序。
 - v1.23.0（背单词下拉子菜单 + 分功能页）：**背单词功能拆分为下拉子菜单**——侧边栏「🎴 背单词」点击展开子菜单（桌面侧边栏与移动端「更多」抽屉同步）：**📖 开始学习**（词书进度 + 开始按钮 + 发音开关）/ **📊 学习记录**（今日新词/复习/到期/打卡四格 + 近 14 天每日明细 + 单词状态筛选）/ **⭐ 困难单词本**（收藏列表 + 一键复习全部收藏词）/ **🔍 查单词**（按单词/中文释义/英释全局搜索，可发音、收藏、单独学习）；页面顶部同步提供功能 tab 条，一次只显示一个功能页，不再一屏堆叠。**学习卡放大居中**——学习卡最大宽 820px 垂直居中、单词放大到 58px，占满页面视觉中心。**「下一个」连续过词**——卡片正面/背面都有「下一个 ›」按钮（记认识并前进），支持 N / → 快捷键，背单词不再每词多点好几下。当前功能页与发音开关等设置随账号持久化。
 - v1.22.1（修复）：服务启动横幅版本号改为从 `VERSION` 文件读取（此前硬编码旧版本号导致横幅与文件不一致）。
@@ -75,6 +76,76 @@
 ```
 
 然后浏览器打开 http://127.0.0.1:8788（start.bat 会自动打开）。关闭「本地服务」窗口即停止。数据保存在项目目录的 `mistake-book.db`。
+
+## Linux 云端部署（阿里云 ECS 等）
+
+> 应用无任何第三方 npm 依赖（纯 Node 内置模块 + `node:sqlite`），无需 `npm install`。
+
+**1. 安装 Node.js（≥ 22.13.0，22.5~22.12 需 `--experimental-sqlite` 标志，不再支持）**
+
+```bash
+# apt 自带的 nodejs 太旧，用 NodeSource 或 nvm 安装 LTS
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+node -v   # 必须 >= v22.13.0
+```
+
+**2. 上传代码并启动（推荐 pm2）**
+
+```bash
+# 将项目目录上传到服务器（git clone 或 scp），然后：
+cd mistake-book
+node server.js                        # 前台测试
+# 生产建议用 pm2 常驻：
+npm i -g pm2
+DB_FILE=/data/mistake-book/mistake-book.db pm2 start server.js --name mistake-book
+pm2 save && pm2 startup
+```
+
+**3. 环境变量（部署关键配置）**
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `PORT` | 8788 | 监听端口 |
+| `HOST` | 127.0.0.1 | 监听地址。**公网直连设 `0.0.0.0`；Nginx 反代保持默认即可（更安全）** |
+| `DB_FILE` | 项目目录/mistake-book.db | 数据库文件路径，建议指向数据盘 |
+| `BACKUP_DIR` | 项目目录/backups | 每日自动备份目录（保留 7 份） |
+| `ALLOW_REGISTER` | 1 | 公网部署**务必设 `0` 关闭开放注册** |
+| `DISABLE_DEMO_ACCOUNT` | 未设 | 公网部署**务必设 `1`**：不再自动创建 admin/admin123 演示账号（否则任何人可直接登录） |
+| `COOKIE_SECURE` | 未设 | HTTPS 反代场景设 `1`（Cookie 加 Secure 标志） |
+| `OCR_ENGINE` | auto | `auto`：有 MinerU 用真实识别，`MINERU_DISABLE=1` 或显式 `mock` 用模拟，否则 **`off`（识别明确报错，绝不把模拟文本当真结果入库）** |
+| `MINERU_CLI` | Windows 自动探测 | MinerU CLI 可执行文件路径（Linux 下请装 mineru CLI 并指向它，Windows 用 `.cmd`） |
+| `PDF_BROWSER` | 自动探测 | 试卷导出用的无头浏览器路径（Linux 常见路径已内置：chromium / google-chrome） |
+
+```bash
+# 公网安全部署示例（pm2 + 环境变量文件）
+ALLOW_REGISTER=0 DISABLE_DEMO_ACCOUNT=1 DB_FILE=/data/mistake-book/mistake-book.db \
+  pm2 start server.js --name mistake-book
+```
+
+**4. Nginx 反代（推荐，HTTPS）**
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+    # 申请证书后加 443/ssl 配置，并设 COOKIE_SECURE=1
+    location / {
+        proxy_pass http://127.0.0.1:8788;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+**5. 安全清单（公网必须）**
+- `ALLOW_REGISTER=0` + `DISABLE_DEMO_ACCOUNT=1`，并自行用注册接口/数据库创建唯一账号
+- 走 HTTPS（Nginx 反代 + 证书），`COOKIE_SECURE=1`
+- 云安全组只放行 80/443（反代）或 8788（直连），限制 SSH 来源
+- 文件权限：用专用用户 + `umask 077`（pm2/systemd 配置），避免 SQLite/备份/上传文件 0644 全机可读
+- OCR：Linux 上若未装 MinerU，识别会明确失败而非返回假文本；可设 `OCR_ENGINE=mock` 仅测试
+- 「热点资讯」需要服务器出网访问第三方域名；出站受限时该模块不可用，不影响其他功能
+- 重启（pm2 reload）会丢失进行中的 OCR 任务与试卷 token，前端会提示重试，属预期行为
 
 ## 测试
 

@@ -138,7 +138,7 @@ function renderQuestions() {
     const m = displayMastery(q.id);
     const dup = findDupCandidates(q.titleTex, q.subject, q.type, q.id, recentPool).length;
     const tagTxt = TAGS.filter(t => q.tags.includes(t.key)).map(t => `${t.icon} ${t.name.split("/")[0]}`).join(" ");
-    const kpTxt = q.kps.length ? q.kps.join(" / ") : '<span class="tag">未分类</span>';
+    const kpTxt = q.kps.length ? q.kps.map(esc).join(" / ") : '<span class="tag">未分类</span>';
     const aged = m.decay;
     const meta = `${esc(TREE.flatMap(s => s.children).find(c => c.id === q.subSubject)?.name || "")} · ${fmtDate(q.createdAt)} 录入${(q.imgs || []).length ? ` · <span title="含 OCR 原图">📷 ${q.imgs.length}</span>` : ""}${dup ? ` · <span class="text-danger">⚠ 疑似重复 ${dup}</span>` : ""}${aged ? " · 超过 7 天未复习" : ""}`;
     if (isMobile) {
@@ -539,9 +539,13 @@ function quickRate(id, result) {
   const log = { id: ++reviewSeq, qid: id, at: Date.now(), result };
   reviewLogs.push(log);
   const q = questions.find(x => x.id === id);
-  if (result === "fail") q.urgent = true;
-  if (result === "half") q.calcWeak = true;
-  if (result === "stuck") q.needConsolidate = true;
+  if (q) {
+    if (result === "fail") q.urgent = true;
+    if (result === "half") q.calcWeak = true;
+    if (result === "stuck") q.needConsolidate = true;
+    // 与 selfRate 对齐：加急/薄弱标记也要持久化，否则刷新后丢失
+    apiCall(API.updateQuestion(q));
+  }
   apiCall(API.saveReviewLog(log));
   const m = displayMastery(id);
   toast(`已记录自评 → 当前 ${m.lv.icon} ${m.lv.name}`, "success");

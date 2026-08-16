@@ -9,9 +9,10 @@ function logsOf(qid) {
   return reviewLogs.filter(l => l.qid === qid).sort((a, b) => a.at - b.at);
 }
 
-/* 四档自评映射到连续计数：ok=对, fail=错, half/stuck 打断连续段但不升降级 */
-function computeMastery(qid) {
-  const logs = logsOf(qid);
+/* 四档自评映射到连续计数：ok=对, fail=错, half/stuck 打断连续段但不升降级
+   logs 可选：传入该题的日志数组（避免全量扫描，词书 3000 词量级性能用） */
+function computeMastery(qid, logs) {
+  if (logs === undefined) logs = logsOf(qid);
   if (!logs.length) return { lv: LV.unreviewed, streak: 0, lastAt: null };
   const last = logs[logs.length - 1];
   let streak = 0;
@@ -55,9 +56,10 @@ function displayMastery(qid) {
 /* ---------------- 间隔重复调度（SM-2 轻量版，由复习记录推导，无额外状态） ---------------- */
 const SM2 = { INITIAL_EASE: 2.5, MIN_EASE: 1.3 };
 
-/* 按时间序模拟 SM-2：返回 { dueAt, ease, intervalDays, lapses } */
-function scheduleOf(qid) {
-  const logs = logsOf(qid);
+/* 按时间序模拟 SM-2：返回 { dueAt, ease, intervalDays, lapses }
+   logs 可选：传入该题的日志数组（词书性能用） */
+function scheduleOf(qid, logs) {
+  if (logs === undefined) logs = logsOf(qid);
   if (!logs.length) return { dueAt: Date.now(), ease: SM2.INITIAL_EASE, intervalDays: 0, lapses: 0, lastAt: null };
   let ease = SM2.INITIAL_EASE, interval = 0, lapses = 0, lastAt = logs[0].at;
   for (const l of logs) {
@@ -77,8 +79,8 @@ function scheduleOf(qid) {
   return { dueAt: lastAt + interval * 86400000, ease, intervalDays: interval, lapses, lastAt };
 }
 
-/* 是否到期（含从未复习 = 立即到期） */
-function isDue(qid) { return scheduleOf(qid).dueAt <= Date.now(); }
+/* 是否到期（含从未复习 = 立即到期）；logs 可选 */
+function isDue(qid, logs) { return scheduleOf(qid, logs).dueAt <= Date.now(); }
 
 /* 下次复习的友好文案 */
 function nextDueText(qid) {

@@ -59,7 +59,11 @@ export function startBrowser(exe, cdpPort, tag = "b") {
 /* 连接 CDP：返回 { call, evalJS, errors, close } */
 export async function connect(wsUrl) {
   const ws = new WebSocket(wsUrl);
-  await new Promise((res, rej) => { ws.addEventListener("open", res); ws.addEventListener("error", rej); });
+  // 握手超时：WebSocket 连不上时不要无限挂起（CI 会等到 job 超时才暴露）
+  await Promise.race([
+    new Promise((res, rej) => { ws.addEventListener("open", res); ws.addEventListener("error", rej); }),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("CDP WebSocket 握手超时（10s）")), 10000))
+  ]);
   let seq = 0;
   const pending = new Map();
   const errors = [];

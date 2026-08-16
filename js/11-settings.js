@@ -153,7 +153,7 @@ function saveOcrConfig() {
   const cfg = {
     engine: $("#ocr-engine").value
   };
-  localStorage.setItem("mb-mineru-config", JSON.stringify(cfg));
+  API.saveMineruConfig(cfg);
   const tag = $("#ocr-mode-tag");
   if (tag) tag.textContent = cfg.engine === "mineru" ? "引擎：MinerU（真实）" : "引擎：模拟";
   toast("OCR 配置已保存");
@@ -250,23 +250,28 @@ function doAddKp(chapterId) {
 function askDelKp(btn) {
   const chapterId = btn.dataset.ch;
   const name = btn.dataset.k;
+  window.__delKp = { chapterId, name }; // 用属性传参，避免知识点名含引号导致内联 onclick 语法错误
   const qCount = questions.filter(q => q.kps.includes(name)).length;
+  const multi = questions.some(q => q.kps.includes(name) && q.kps.length > 1);
   openModal("删除知识点", `
-    <div class="small muted">${qCount ? `有 <b>${qCount}</b> 道题关联该知识点，删除后这些题将变为「未分类」。` : "确认删除该知识点？"}</div>`,
+    <div class="small muted">${qCount ? `有 <b>${qCount}</b> 道题关联该知识点，删除后从这些题中移除「${esc(name)}」${multi ? "（其余知识点保留）" : "（题目将变为未分类）"}。` : "确认删除该知识点？"}</div>`,
     `<button class="btn" onclick="closeModal()">取消</button>
-     <button class="btn btn-danger" onclick="closeModal();doDelKp('${chapterId}','${esc(name)}')">确认删除</button>`
+     <button class="btn btn-danger" onclick="closeModal();doDelKp()">确认删除</button>`
   );
 }
 
-function doDelKp(chapterId, name) {
+function doDelKp() {
+  const { chapterId, name } = window.__delKp || {};
+  if (!chapterId || !name) return;
   const ch = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === chapterId);
   if (!ch) return;
   ch.children = ch.children.filter(k => k !== name);
+  // 只移除该知识点，保留题目其余知识点（多知识点题目不应被整体清空）
   const affected = questions.filter(q => q.kps.includes(name));
-  affected.forEach(q => { q.kps = []; apiCall(API.updateQuestion(q)); });
+  affected.forEach(q => { q.kps = q.kps.filter(k => k !== name); apiCall(API.updateQuestion(q)); });
   apiCall(API.saveTree(TREE));
   renderSettings();
-  toast("知识点已删除，相关题目归入未分类", "success");
+  toast("知识点已删除，相关题目移除该知识点", "success");
 }
 
 function renameNode(id) {
@@ -317,6 +322,11 @@ function delNode(id) {
   }
   const ch = TREE.flatMap(s => s.children).flatMap(c => c.children).find(c => c.id === id);
   if (ch) {
+    // 内置词书章节（ch-w2 = 六级核心词 3000）禁止删除：删后背单词模块失效且重导会产生同 id 重复题
+    if (id === "ch-w2") {
+      toast("禁止删除：该章节是内置词书「六级核心词 3000」，删除会导致背单词模块失效。如需清空请在 设置 → 背单词 重新导入", "error");
+      return;
+    }
     const qCount = questions.filter(q => q.chapter === id).length;
     openModal("删除章节", `${qCount ? `该章节下有 <b>${qCount}</b> 道错题，删除后这些题目将变为未分类。` : ""}确认删除章节「${esc(ch.name)}」？`,
       `<button class="btn" onclick="closeModal()">取消</button>
@@ -691,6 +701,18 @@ function doOverwrite() {
   applyTheme();
   applyModuleVisibility();
   qidSeq = Math.max(100, ...questions.map(q => q.id || 0));
+  // 覆盖导入后必须重算 id 计数器，否则新待办/目标 id 与导入数据撞库静默丢失
+  personalIdSeq = Math.max(1,
+    ...personal.todos.map(t => t.id || 0),
+    ...personal.goals.map(g => g.id || 0),
+    ...personal.inbox.map(i => i.id || 0),
+    ...personal.bookmarks.map(b => b.id || 0)) + 1;
+  if (typeof subIdSeq === "number") {
+    let maxSub = 0;
+    personal.todos.forEach(t => (t.subtasks || []).forEach(s => { if (Number(s.id) > maxSub) maxSub = Number(s.id); }));
+    personal.goals.forEach(g => (g.milestones || []).forEach(m => { if (Number(m.id) > maxSub) maxSub = Number(m.id); }));
+    subIdSeq = maxSub + 1;
+  }
   window.__importData = null;
   persistLocal();
   closeModal();

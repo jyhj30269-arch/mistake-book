@@ -1,9 +1,11 @@
-/* 临时验证：v1.16.0 融合仪表盘 + 新章节树（验证后删除） */
+/* v1.16.0 融合仪表盘 + 新章节树验证（已纳入 CI） */
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
+const ROOT = fileURLToPath(import.meta.url).replace(/[\\/][^\\/]*$/, "");
 const EDGE = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 const PORT = 9406;
 const CDP_PORT = PORT + 100;
@@ -12,7 +14,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const testDir = mkdtempSync(join(tmpdir(), "mb-v16-"));
 const server = spawn("node", ["server.js"], {
-  cwd: process.cwd(),
+  cwd: ROOT, // 必须锚定仓库根目录，否则 server.js 找不到
   env: { ...process.env, PORT: String(PORT), DB_FILE: join(testDir, "t.db"), MINERU_DISABLE: "1" },
   stdio: "ignore"
 });

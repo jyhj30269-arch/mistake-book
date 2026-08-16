@@ -8,6 +8,10 @@
 let currentView = "dashboard";
 let serverDown = false; // 本地 SQLite 服务是否可用
 function go(view) {
+  // 离开背单词页时若有进行中的单词会话，先退出（否则键盘快捷键会劫持其他页面并误写自评）
+  if (view !== "wordbook" && typeof wordSession !== "undefined" && wordSession) {
+    try { wordExit(); } catch (e) { /* 忽略 */ }
+  }
   $$("#view-app section").forEach(s => s.style.display = "none");
   $("#view-" + view).style.display = "block";
   $$(".nav-item, .mobile-tabbar a").forEach(a => a.classList.toggle("active", a.dataset.view === view));

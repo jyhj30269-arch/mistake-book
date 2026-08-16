@@ -25,23 +25,37 @@ function wordQuestions() {
   return questions.filter(q => q.type === "vocabulary" && q.subject === "subj-eng" &&
     q.subSubject === "ss-word" && q.chapter === WORD_BOOK_ID);
 }
+/* 词书复习日志索引：qid -> 按时间排序的日志数组（3000 词量级避免每词全量 filter+sort reviewLogs） */
+function wordLogsIndex() {
+  const ids = new Set(wordQuestions().map(q => q.id));
+  const idx = new Map();
+  for (const l of reviewLogs) {
+    if (ids.has(l.qid)) {
+      const arr = idx.get(l.qid);
+      if (arr) arr.push(l); else idx.set(l.qid, [l]);
+    }
+  }
+  for (const arr of idx.values()) arr.sort((a, b) => a.at - b.at);
+  return idx;
+}
+
 /* 三档统计：认识（ok）/ 模糊（half）/ 不认识（fail），按每词最后一条自评
    due 只计「已学且到期且未掌握」——已掌握（连续答对）的词移出复习队列，与「开始复习」按钮口径一致 */
 function wordProgress() {
   const list = wordQuestions();
-  const last = {};
-  reviewLogs.forEach(l => { if (list.some(q => q.id === l.qid)) last[l.qid] = l.result; });
-  const stat = { know: 0, fuzzy: 0, miss: 0, mastered: 0, total: list.length, learned: Object.keys(last).length,
-    due: 0 };
-  Object.values(last).forEach(r => {
-    if (r === "ok") stat.know++;
-    else if (r === "half") stat.fuzzy++;
+  const idx = wordLogsIndex();
+  const stat = { know: 0, fuzzy: 0, miss: 0, mastered: 0, total: list.length, learned: 0, due: 0 };
+  for (const q of list) {
+    const logs = idx.get(q.id) || [];
+    if (!logs.length) continue;
+    stat.learned++;
+    const last = logs[logs.length - 1].result;
+    if (last === "ok") stat.know++;
+    else if (last === "half") stat.fuzzy++;
     else stat.miss++;
-  });
-  list.forEach(q => {
-    if (isMastered(q.id)) stat.mastered++;
-    else if (logsOf(q.id).length > 0 && isDue(q.id)) stat.due++;
-  });
+    if (isMastered(q.id, logs)) stat.mastered++;
+    else if (isDue(q.id, logs)) stat.due++;
+  }
   return stat;
 }
 /* 词书章节存在性保证（不存在则自动创建） */
@@ -243,20 +257,24 @@ function shuffle(arr) {
   return arr;
 }
 
-/* 是否已掌握：连续答对 3 次（LV blue「完全掌握」）→ 移出复习队列，不再打扰 */
-function isMastered(qid) {
-  return computeMastery(qid).lv.key === "blue";
+/* 是否已掌握：连续答对 3 次（LV blue「完全掌握」）→ 移出复习队列，不再打扰；logs 可选（性能） */
+function isMastered(qid, logs) {
+  return computeMastery(qid, logs).lv.key === "blue";
 }
 
 /* 到期复习词：已学 && 到期 && 未掌握；按到期紧急度分组（同日乱序，跨日仍最急在前） */
 function dueReviewWords() {
-  const list = wordQuestions().filter(q => logsOf(q.id).length > 0 && isDue(q.id) && !isMastered(q.id));
-  list.sort((a, b) => scheduleOf(a.id).dueAt - scheduleOf(b.id).dueAt);
+  const idx = wordLogsIndex();
+  const list = wordQuestions().filter(q => {
+    const logs = idx.get(q.id) || [];
+    return logs.length > 0 && !isMastered(q.id, logs) && isDue(q.id, logs);
+  });
+  list.sort((a, b) => scheduleOf(a.id, idx.get(a.id)).dueAt - scheduleOf(b.id, idx.get(b.id)).dueAt);
   // 按到期日分组，组内乱序（不按字母/导入顺序）
   const groups = [];
   let cur = [], curDay = null;
   list.forEach(q => {
-    const d = fmtDate(scheduleOf(q.id).dueAt);
+    const d = fmtDate(scheduleOf(q.id, idx.get(q.id)).dueAt);
     if (curDay !== d) { if (cur.length) groups.push(cur); cur = []; curDay = d; }
     cur.push(q);
   });
@@ -264,14 +282,22 @@ function dueReviewWords() {
   return groups.reduce((acc, g) => acc.concat(shuffle(g)), []);
 }
 
-/* 学习 = 今日新词（每日上限，乱序） */
+/* 学习 = 今日新词（每日上限按日累计：今天已首刷数达到上限后不再取新词） */
 function startWordLearn() {
   const list = wordQuestions();
   if (!list.length) { toast("词书还是空的：去 设置 → 📚 背单词 导入六级核心词 3000，或批量粘贴自定义词表", "error"); return; }
-  const fresh = list.filter(q => logsOf(q.id).length === 0);
+  const idx = wordLogsIndex();
+  const today = fmtDate(Date.now());
+  let todayNew = 0;
+  for (const q of list) { const logs = idx.get(q.id) || []; if (logs.length && fmtDate(logs[0].at) === today) todayNew++; }
+  const fresh = list.filter(q => !(idx.get(q.id) || []).length);
   const newLimit = Math.max(1, (wordPlan && wordPlan.newPerDay) || 50);
-  const freshTake = shuffle(fresh.slice(0, newLimit));
-  if (!freshTake.length) { toast("今天的新词已经学完了 🎉 点「开始复习」复习到期词", "success"); return; }
+  const remaining = Math.max(0, newLimit - todayNew);
+  const freshTake = shuffle(fresh.slice(0, remaining));
+  if (!freshTake.length) {
+    toast(todayNew >= newLimit ? `今天的新词额度已用完（${todayNew}/${newLimit}）🎉 点「开始复习」复习到期词` : "今天的新词已经学完了 🎉 点「开始复习」复习到期词", "success");
+    return;
+  }
   if (currentView !== "wordbook") go("wordbook");
   wordQueue = freshTake.map(q => ({ q, misses: 0 }));
   wordIdx = 0;
@@ -507,14 +533,20 @@ function learnWordNow(qid) {
 function wordToday() {
   const list = wordQuestions();
   const today = fmtDate(Date.now());
-  const ids = new Set(list.map(q => q.id));
-  const todayLogs = reviewLogs.filter(l => ids.has(l.qid) && fmtDate(l.at) === today);
-  let newToday = 0;
-  list.forEach(q => { const f = logsOf(q.id)[0]; if (f && fmtDate(f.at) === today) newToday++; });
+  const idx = wordLogsIndex();
+  let reviewToday = 0, newToday = 0, dueNow = 0;
+  for (const q of list) {
+    const logs = idx.get(q.id) || [];
+    if (!logs.length) continue;
+    if (fmtDate(logs[0].at) === today) newToday++;
+    // 今日到期：已学 && 到期 && 未掌握（与「开始复习(N)」按钮口径一致）
+    if (!isMastered(q.id, logs) && isDue(q.id, logs)) dueNow++;
+  }
+  for (const arr of idx.values()) for (const l of arr) if (fmtDate(l.at) === today) reviewToday++;
   return {
     newToday,
-    reviewToday: todayLogs.length,
-    dueNow: list.filter(q => logsOf(q.id).length > 0 && isDue(q.id)).length,
+    reviewToday,
+    dueNow,
     favCount: wordFavList().length,
     streak: currentStreak()
   };
@@ -545,13 +577,18 @@ function wordDailyHistory(days = 14) {
   return out;
 }
 
-/* 状态：fresh 未学 / review 待复习 / mastered 已掌握（完全掌握且未到期）/ learning 学习中 */
+/* 状态：fresh 未学 / review 待复习 / mastered 已掌握（完全掌握，移出复习队列）/ learning 学习中 */
 let wordStatusTab = "all"; // all | review | fresh | mastered | fav
 function wordStatusRows(filter) {
+  const idx = wordLogsIndex();
   const rows = wordQuestions().map(q => {
-    const m = computeMastery(q.id);
-    const s = scheduleOf(q.id);
-    const state = !s.lastAt ? "fresh" : isDue(q.id) ? "review" : (m.lv.key === "blue" ? "mastered" : "learning");
+    const logs = idx.get(q.id) || [];
+    const m = computeMastery(q.id, logs);
+    const s = scheduleOf(q.id, logs);
+    const state = !logs.length ? "fresh"
+      : isMastered(q.id, logs) ? "mastered"
+      : isDue(q.id, logs) ? "review"
+      : "learning";
     return { q, state, lv: m.lv, fav: isFav(q), lastAt: s.lastAt };
   });
   const order = { review: 0, fresh: 1, learning: 2, mastered: 3 };

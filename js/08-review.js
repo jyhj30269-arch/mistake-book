@@ -49,6 +49,9 @@ function renderReviewConfig() {
     apiCall(API.saveSettings({ reviewCfg }));
   });
   $$("#rev-num .chip").forEach(x => x.classList.toggle("on", x.dataset.v === String(reviewCfg.num)));
+  // 进行中的复习会话不被导航往返 / 跨标签同步重置（renderDashboard 每次进入都会调到这里）
+  // 进行中的复习会话不被导航往返 / 跨标签同步重置（renderDashboard 每次进入都会调到这里）
+  if (reviewStartedAt > 0 && $("#review-play") && $("#review-play").style.display !== "none") return;
   $("#review-config").style.display = "";
   $("#review-play").style.display = "none";
   $("#review-done").style.display = "none";
@@ -80,7 +83,10 @@ function renderResumeButton() {
 function continueResume() {
   const r = reviewResume;
   if (!r || !Array.isArray(r.queue)) { toast("没有可继续的复习进度", "error"); return; }
-  const pool = r.queue.map(id => questions.find(q => q.id === id)).filter(Boolean);
+  // 按原队列下标重建：记录仍存在题目的原下标，done/skipped 只保留仍在池内的下标（题目被删除后不错位）
+  const oldIdx = new Map();
+  r.queue.forEach((id, i) => { const q = questions.find(x => x.id === id); if (q) oldIdx.set(i, q); });
+  const pool = Array.from(oldIdx.values());
   if (!pool.length) {
     toast("上次的题目已被删除，无法继续", "error");
     reviewResume = null;
@@ -88,11 +94,12 @@ function continueResume() {
     renderResumeButton();
     return;
   }
+  const validSet = new Set(oldIdx.keys());
   reviewQueue = pool;
   reviewIdx = Math.min(r.idx, pool.length);
   reviewResults = [];
-  reviewDone = new Set(r.done || []);
-  reviewSkipped = new Set(r.skipped || []);
+  reviewDone = new Set((r.done || []).filter(i => validSet.has(i)));
+  reviewSkipped = new Set((r.skipped || []).filter(i => validSet.has(i)));
   reviewStartedAt = Date.now();
   reviewResume = null;
   apiCall(API.saveSettings({ reviewResume: null }));

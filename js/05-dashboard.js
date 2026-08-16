@@ -15,7 +15,7 @@ function recScore(q) {
   const lastAt = last ? last.at : q.createdAt;
   const due = lastAt + (last && last.result === "fail" ? 1 : intervals[Math.min(okStreak, 4)]) * 86400000;
   const overdue = Math.max(0, (Date.now() - due) / 86400000);
-  const tagW = Math.max(...q.tags.map(t => (TAGS.find(x => x.key === t) || {}).weight || 1));
+  const tagW = q.tags.length ? Math.max(...q.tags.map(t => (TAGS.find(x => x.key === t) || {}).weight || 1)) : 0; // 无标签题不饿死（Math.max(...[]) = -Infinity）
   return overdue * 10 + m.lv.weight * 2 + tagW + (logs.length ? 0 : 5);
 }
 

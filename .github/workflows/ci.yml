@@ -50,6 +50,9 @@ jobs:
       - name: v1.19.0 背单词验证
         run: node verify-v19.mjs
 
+      - name: v1.21.0 背单词独立页面验证
+        run: node verify-v21.mjs
+
       - name: v1.20.0 背单词升级验证
         run: node verify-v20.mjs
 
@@ -61,6 +64,12 @@ jobs:
 
       - name: v1.24.0 学习/复习分离验证
         run: node verify-v24.mjs
+
+      - name: 新功能回归检查
+        run: node feature-check.mjs
+
+      - name: 个人工作台功能检查
+        run: node verify-personal.mjs
 
       - name: 全页面走查
         run: node verify-sweep.mjs

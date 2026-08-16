@@ -1073,22 +1073,36 @@ function calPick(dateStr) {
   renderCalendar();
 }
 
+/* 日历到期分布缓存：渲染一次、逐格 O(1) 查询（避免每题 scheduleOf 全量扫日志 ×31 格） */
+let calDueCache = null; // { qid: dueDateStr }
+function calDueMap() {
+  if (calDueCache) return calDueCache;
+  const map = {};
+  const today = fmtDate(Date.now());
+  for (const q of questions) {
+    if (q.type === "vocabulary") continue;
+    if (displayMastery(q.id).lv.key === "blue") continue;
+    const s = scheduleOf(q.id);
+    map[q.id] = s.lastAt ? fmtDate(s.dueAt) : today;
+  }
+  calDueCache = map;
+  return map;
+}
+
 function calDayInfo(dateStr) {
   const todos = personal.todos.filter(t => t.due === dateStr);
   const goals = personal.goals.filter(g => g.targetDate === dateStr);
-  const rv = personal.reviews.find(r => r.day === dateStr);
+  const rv = personal.reviews.find(r => r.day === dateStr) || null;
   const studyMin = Math.floor((study.perDay[dateStr] || 0) / 60);
-  // ② 到期分布：scheduleOf 的 dueAt 落在该天的题目数（未复习题算"今天到期"；词汇类不计——走背单词页）
-  const dueCount = questions.filter(q => {
-    if (q.type === "vocabulary") return false;
-    if (displayMastery(q.id).lv.key === "blue") return false;
-    const s = scheduleOf(q.id);
-    return s.lastAt ? fmtDate(s.dueAt) === dateStr : dateStr === fmtDate(Date.now());
-  }).length;
+  // ② 到期分布：缓存查询（未复习题算"今天到期"；词汇类不计——走背单词页；已掌握不计）
+  let dueCount = 0;
+  const dueMap = calDueMap();
+  for (const q of questions) { if (q.type !== "vocabulary" && dueMap[q.id] === dateStr) dueCount++; }
   return { todos, goals, rv, studyMin, dueCount };
 }
 
 function renderCalendar() {
+  calDueCache = null; // 数据可能已变化，渲染前重建到期分布
   const sub = $("#calendar-sub");
   if (sub) sub.textContent = "待办截止 · 目标日期 · 复盘与学习记录，点日期看详情";
   const head = $("#cal-head");

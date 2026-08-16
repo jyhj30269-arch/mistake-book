@@ -236,8 +236,8 @@ async function loadLocal() {
     TREE.length = 0;
     d.tree.forEach(x => TREE.push(x));
   }
-  qidSeq = Math.max(100, ...questions.map(q => q.id || 0));
-  reviewSeq = reviewLogs.length || 0;
+  qidSeq = questions.reduce((m, q) => Math.max(m, q.id || 0), 100);
+  reviewSeq = reviewLogs.reduce((m, l) => Math.max(m, l.id || 0), 0);
   if (d.study) {
     study.seconds = d.study.seconds || 0;
     study.blurPrompt = !!d.study.blurPrompt;
@@ -262,6 +262,13 @@ async function loadLocal() {
       ...personal.goals.map(g => g.id || 0),
       ...personal.inbox.map(i => i.id || 0),
       ...personal.bookmarks.map(b => b.id || 0)) + 1;
+    // 子任务 / 里程碑共用的 subIdSeq 也要按持久化数据恢复，否则刷新后新 id 与存量冲突
+    if (typeof subIdSeq === "number") {
+      let maxSub = 0;
+      personal.todos.forEach(t => (t.subtasks || []).forEach(s => { if (Number(s.id) > maxSub) maxSub = Number(s.id); }));
+      personal.goals.forEach(g => (g.milestones || []).forEach(m => { if (Number(m.id) > maxSub) maxSub = Number(m.id); }));
+      subIdSeq = maxSub + 1;
+    }
     reviewSets = Array.isArray(d.reviewSets) ? d.reviewSets : [];
     habits = Array.isArray(d.habits) ? d.habits : [];
   }

@@ -6,7 +6,7 @@ const PORT = 9398;
 const BASE = `http://127.0.0.1:${PORT}/api`;
 const server = startServer(PORT, "api");
 await sleep(2000);
-const { check, report } = makeCheck("API 接口测试");
+const { check, abort, report } = makeCheck("API 接口测试");
 let cookie = "";
 
 async function req(method, path, body, headers = {}) {
@@ -127,7 +127,7 @@ try {
   check("登出后旧 Cookie 访问返回 401", r.status === 401);
 } catch (e) {
   console.error("测试异常:", e.message);
-  process.exitCode = 1;
+  abort(e.message); // 必须累加 failures：report() 的 process.exit 会覆盖 process.exitCode，否则基建故障时假绿
 } finally {
   await server.stop();
 }

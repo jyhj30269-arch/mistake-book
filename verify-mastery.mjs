@@ -69,7 +69,7 @@ try {
     logs(9913, [[d(2), "fail"]]);
     out.singleFail = computeMastery(9913).lv.key === "orange";
 
-    reviewLogs = reviewLogs.filter(l => l.qid > 9900 === false ? false : !(l.qid >= 9901));
+    reviewLogs = reviewLogs.filter(l => l.qid < 9901); // 只清理测试注入的日志（9901-9913），保留种子日志
     return out;
   })()`);
 
